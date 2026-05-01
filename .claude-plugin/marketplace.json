@@ -7,7 +7,11 @@
     {
       "name": "project-journal",
       "description": "Per-task journaling: inject task briefing on session start, log trajectory, induce summary on stop.",
-      "source": "./plugin",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/nhdms/project-journal.git",
+        "path": "plugin"
+      },
       "category": "productivity"
     }
   ]
