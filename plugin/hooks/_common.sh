@@ -1,0 +1,52 @@
+#!/bin/bash
+# Common preamble sourced by all project-journal hook scripts.
+# Sets up: PJ_HOOK_LOG, log_err(), reads HOOK_INPUT from stdin,
+# extracts HOOK_CWD, cd's into it, exports PJ_TASK (current task id).
+#
+# Hard rules:
+#   * Never crash a Claude session: every error path must `exit 0`.
+#   * Stay silent unless the calling hook deliberately writes to stdout.
+#   * Skip silently if `pj` or `jq` is missing, or if no current task.
+
+set -u
+
+PJ_HOOK_LOG="${HOME}/.project-journal-hook.log"
+
+log_err() {
+  # Best-effort: never let a logging failure propagate.
+  { echo "[$(date -u +%FT%TZ)] [$(basename "${0:-hook}")] $*" >> "$PJ_HOOK_LOG"; } 2>/dev/null || true
+}
+
+# Skip if pj not available.
+if ! command -v pj >/dev/null 2>&1; then
+  exit 0
+fi
+
+# Skip if jq not available (all hooks parse JSON input).
+if ! command -v jq >/dev/null 2>&1; then
+  log_err "jq not available, skipping hook"
+  exit 0
+fi
+
+# Read stdin once. Default to empty object so jq calls below don't fail.
+HOOK_INPUT=$(cat 2>/dev/null || true)
+if [ -z "$HOOK_INPUT" ]; then
+  HOOK_INPUT="{}"
+fi
+
+# Extract cwd from input and switch into it. Hooks run in the Claude
+# Code process cwd, which is not necessarily the project root, so prefer
+# the cwd reported by the hook payload.
+HOOK_CWD=$(printf '%s' "$HOOK_INPUT" | jq -r '.cwd // empty' 2>/dev/null || true)
+if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
+  cd "$HOOK_CWD" || exit 0
+fi
+
+# Resolve current task. `pj current --quiet` exits non-zero with empty
+# stdout when there is no active task; treat both as "skip".
+PJ_TASK=$(pj current --quiet 2>/dev/null || true)
+if [ -z "$PJ_TASK" ]; then
+  exit 0
+fi
+
+export PJ_HOOK_LOG HOOK_INPUT HOOK_CWD PJ_TASK

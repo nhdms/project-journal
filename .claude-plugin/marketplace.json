@@ -1,0 +1,14 @@
+{
+  "name": "project-journal-local",
+  "owner": {
+    "name": "nhduc"
+  },
+  "plugins": [
+    {
+      "name": "project-journal",
+      "description": "Per-task journaling: inject task briefing on session start, log trajectory, induce summary on stop.",
+      "source": "./plugin",
+      "category": "productivity"
+    }
+  ]
+}

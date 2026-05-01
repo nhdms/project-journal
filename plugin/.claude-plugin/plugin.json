@@ -1,0 +1,10 @@
+{
+  "name": "project-journal",
+  "version": "0.1.0",
+  "description": "Per-task journaling for Claude Code: inject task briefing on session start, log trajectory, induce summary on stop.",
+  "author": {
+    "name": "nhduc"
+  },
+  "license": "MIT",
+  "keywords": ["journal", "task-tracking", "memory", "context", "reasoning-bank"]
+}

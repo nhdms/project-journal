@@ -1,0 +1,5 @@
+pj
+.DS_Store
+.project-journal/
+.omc/
+~/.project-journal-hook.log
