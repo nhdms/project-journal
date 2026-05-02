@@ -1,111 +1,170 @@
 # project-journal — Claude Code plugin
 
-Per-task journaling for Claude Code. Wraps the `pj` CLI so that every
-Claude Code session automatically:
+Per-task journaling for Claude Code. Wraps the `pj` CLI so every Claude
+Code session automatically picks up where you left off, logs what
+happened, and induces a summary at the end.
 
-1. **SessionStart** — injects the current task's briefing as additional
-   context, so Claude resumes with full task background.
-2. **UserPromptSubmit** — captures the *first* user prompt of the
-   session as the task's stated intent.
-3. **PostToolUse** — logs `Edit | Write | MultiEdit | Bash |
-   NotebookEdit` calls into the task's trajectory (filtered, summaries
-   truncated to 500 chars).
-4. **Stop** — fires `pj finish --auto` in the background, which runs
-   LLM induction over the trajectory and proposes a summary + status.
-5. **PreCompact** — drops a `compact_marker` event into the trajectory
-   right before context compaction.
-
-The plugin is purely a wrapper. All journal state lives in
-`.project-journal/` inside each project (created by `pj init`).
+It is the missing **cross-session memory** layer for multi-task projects:
+ship a task, walk away, come back two days later, and Claude resumes
+with full briefing on phase goals, hard dependencies, and the top-5 most
+relevant prior tasks.
 
 ---
 
-## Requirements
+## Overview
 
-- `pj` binary in `PATH` (build with `go install ./cmd/pj` from the
-  project-journal repo).
-- `jq` in `PATH` (used to parse hook JSON input).
-- Optional: `OPENAI_API_KEY` for LLM-driven summary induction on
-  `pj finish --auto`. Without it, the Stop hook still runs but marks
-  the task `needs_review` instead of auto-summarizing.
+The plugin is a thin wrapper around the `pj` CLI. It registers five
+hooks and ships five user-invokable skills plus one validation agent.
 
-If either `pj` or `jq` is missing, every hook silently no-ops and the
-Claude session is unaffected.
+| Component | Type | What it does |
+|-----------|------|--------------|
+| `session-start.sh` | SessionStart hook | Injects current task briefing as `additionalContext` |
+| `user-prompt-submit.sh` | UserPromptSubmit hook | Logs the FIRST user prompt as task intent |
+| `post-tool-use.sh` | PostToolUse hook | Logs `Edit\|Write\|MultiEdit\|Bash\|NotebookEdit` calls |
+| `stop.sh` | Stop hook | Backgrounds `pj finish --auto` for LLM induction |
+| `pre-compact.sh` | PreCompact hook | Drops a `compact_marker` into trajectory |
+| `pj-status` | Skill | Run `pj status` |
+| `pj-tree` | Skill | Run `pj tree` |
+| `pj-current` | Skill | Run `pj current` |
+| `pj-context` | Skill | Run `pj context [task_id]` |
+| `pj-review` | Skill | Quality-check a task summary via the validator agent |
+| `journal-validator` | Agent | Reviews induced summary against raw trajectory |
+
+All journal state lives in `.project-journal/` inside each project
+(created by `pj init`). The plugin itself stores no state.
+
+---
+
+## Prerequisites
+
+- **Go 1.21+** — to build the `pj` binary
+- **`jq`** — used by hooks to parse JSON stdin payloads
+- **`bash`** — hooks are pure POSIX-ish bash
+- *(optional)* **`OPENAI_API_KEY`** — enables LLM summary induction on `pj finish --auto`. Without it, the Stop hook still runs but marks the task `needs_review` instead of auto-summarizing.
+
+If either `pj` or `jq` is missing, every hook silently no-ops — Claude
+sessions are unaffected.
 
 ---
 
 ## Installation
 
-### Development install (recommended while iterating)
+### 1. Build and install the `pj` CLI
 
 ```bash
-# 1. Build the pj binary and put it on PATH
-cd /path/to/project-journal
+git clone https://github.com/nhdms/project-journal.git
+cd project-journal
 go install ./cmd/pj
-which pj   # verify it's on PATH
-
-# 2. Load the plugin directly from disk
-claude --plugin-dir /path/to/project-journal/plugin
 ```
 
-### Marketplace install
-
-Distribute via a Claude Code plugin marketplace (see Claude Code docs)
-and have users run:
+Make sure `$HOME/go/bin` is on your `PATH`:
 
 ```bash
-claude plugin install project-journal
+# In ~/.zshrc or ~/.bashrc
+export PATH="$HOME/go/bin:$PATH"
+```
+
+Verify:
+
+```bash
+pj --version
+which pj
+```
+
+### 2. Install the plugin
+
+**Via marketplace (recommended):**
+
+```
+/plugin marketplace add nhdms/project-journal
+/plugin install project-journal@project-journal-local
+```
+
+**Via local marketplace (development):**
+
+```
+/plugin marketplace add /path/to/project-journal
+/plugin install project-journal@project-journal-local
 ```
 
 ---
 
 ## Per-project setup
 
-Inside each project where you want a journal:
-
 ```bash
-cd /path/to/your/project
-pj init                       # creates .project-journal/
-pj phase add P1 "MVP"         # optional: organize tasks under phases
-pj task add T1 "Implement X"  # create a task
-pj start T1                   # mark T1 in_progress and set as current
+cd ~/your-project
+pj init                            # creates .project-journal/
+pj phase add NHD-6 "Onboarding"    # optional: organize tasks under phases
+pj task add T1 "First task" --phase NHD-6
+pj start T1                        # mark T1 in_progress and set as current
 ```
 
-Now any `claude` session run from this directory will log into `T1`.
+Now any `claude` session run from this directory automatically logs into
+`T1` and starts with `T1`'s briefing pre-loaded.
 
 ---
 
-## Daily workflow
+## Workflow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  pj start T2                                                │
+│           │                                                 │
+│           ▼                                                 │
+│  claude  ──── SessionStart ──► injects briefing for T2      │
+│           │                                                 │
+│           │   first prompt ──► user_prompt event            │
+│           │                                                 │
+│           │   Edit/Write/Bash ──► tool_use events           │
+│           │                                                 │
+│           │   /compact ──► compact_marker event             │
+│           │                                                 │
+│           │   exit ──► Stop ──► pj finish T2 --auto (bg)    │
+│           ▼                                                 │
+│  pj show T2                                                 │
+│  /project-journal:pj-review T2  (optional quality check)    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Daily commands
 
 ```bash
 # Switch tasks
 pj start T2
 
-# Open a Claude Code session — SessionStart hook injects T2's briefing
+# Open Claude — SessionStart hook injects T2's briefing
 claude
 
 # ... work happens, hooks log silently ...
 
-# When you're done (or close Claude), the Stop hook spawns
-#   `pj finish T2 --auto`
-# which runs LLM induction and auto-fills the summary.
+# Stop hook spawns `pj finish T2 --auto` (LLM induction in background)
 
-# Inspect the result
+# Inspect
 pj show T2
 pj edit T2     # tweak summary / status as JSON
 ```
 
-### Slash commands
+### Slash commands (skills)
 
-The plugin ships these slash commands (namespaced as
-`/project-journal:<name>`):
+| Command                       | What it does                                                     |
+| :---------------------------- | :--------------------------------------------------------------- |
+| `/project-journal:pj-status`  | High-level journal summary (counts, current task)                |
+| `/project-journal:pj-tree`    | ASCII tree of phases + tasks with status icons                   |
+| `/project-journal:pj-current` | Print the current active task ID                                 |
+| `/project-journal:pj-context` | Render briefing for current task; pass an ID for a specific task |
+| `/project-journal:pj-review`  | Score a finished task's summary and propose improvements         |
 
-| Command                       | What it does                                  |
-| :---------------------------- | :-------------------------------------------- |
-| `/project-journal:pj-status`  | Run `pj status` — high-level journal summary  |
-| `/project-journal:pj-tree`    | Run `pj tree` — ASCII tree of phases + tasks  |
-| `/project-journal:pj-current` | Print the current active task ID              |
-| `/project-journal:pj-context` | Render briefing for current task; pass an ID to render a specific task |
+---
+
+## Configuration
+
+Environment variables read by `pj`:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENAI_API_KEY` | — | Enables LLM induction on `pj finish --auto` |
+| `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Model used for summary induction |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Model used to embed tasks for relevance retrieval |
 
 ---
 
@@ -115,19 +174,17 @@ All hook errors are appended to `~/.project-journal-hook.log`. Hooks
 *never* write to stderr (which would leak into the Claude UI), and
 they always exit 0 — they cannot break a Claude session.
 
-Useful debugging commands:
-
 ```bash
 tail -f ~/.project-journal-hook.log
 pj current --quiet            # what task are hooks logging into?
 cat .project-journal/sessions/<TASK_ID>.jsonl | tail -20
 ```
 
-If you suspect a hook is misfiring, run a single hook manually:
+Run a single hook manually for diagnosis:
 
 ```bash
 echo '{"cwd":"'"$PWD"'","tool_name":"Bash","tool_input":{"command":"ls"},"tool_result":"ok"}' \
-  | bash /path/to/plugin/hooks/post-tool-use.sh
+  | bash ${CLAUDE_PLUGIN_ROOT}/hooks/post-tool-use.sh
 ```
 
 ---
@@ -141,31 +198,55 @@ The plugin no-ops automatically when:
 - the project has no current task (`pj current --quiet` returns empty),
   which is the case before `pj init` or before you `pj start` a task.
 
-To disable globally, uninstall the plugin or remove the `--plugin-dir`
-flag.
+To disable globally:
+
+```
+/plugin disable project-journal
+```
+
+Or uninstall:
+
+```
+/plugin uninstall project-journal
+```
 
 ---
 
-## Files
+## Cost
+
+LLM induction on `pj finish --auto` runs once per task with `gpt-4o-mini`
+by default. Typical cost is **~$0.001–0.005 per finished task** depending
+on trajectory length. Embedding cost on `pj task add` is negligible
+(~$0.00001 per task).
+
+Without `OPENAI_API_KEY`, no LLM calls are made — the Stop hook just
+marks the task `needs_review` and exits.
+
+---
+
+## File structure
 
 ```
 plugin/
 ├── .claude-plugin/
-│   └── plugin.json              # plugin manifest
-├── README.md                    # this file
+│   └── plugin.json
+├── README.md
 ├── hooks/
-│   ├── hooks.json               # hook event registration
-│   ├── _common.sh               # shared preamble (sourced by all hooks)
-│   ├── session-start.sh         # SessionStart   → pj context
-│   ├── user-prompt-submit.sh    # UserPromptSubmit → pj log --first-only
-│   ├── post-tool-use.sh         # PostToolUse    → pj log --type tool_use
-│   ├── stop.sh                  # Stop           → pj finish --auto (bg)
-│   └── pre-compact.sh           # PreCompact     → pj log --type compact_marker
-└── commands/
-    ├── pj-status.md
-    ├── pj-tree.md
-    ├── pj-context.md
-    └── pj-current.md
+│   ├── hooks.json
+│   ├── _common.sh
+│   ├── session-start.sh
+│   ├── user-prompt-submit.sh
+│   ├── post-tool-use.sh
+│   ├── stop.sh
+│   └── pre-compact.sh
+├── skills/
+│   ├── pj-status/SKILL.md
+│   ├── pj-tree/SKILL.md
+│   ├── pj-current/SKILL.md
+│   ├── pj-context/SKILL.md
+│   └── pj-review/SKILL.md
+└── agents/
+    └── journal-validator.md
 ```
 
 ---
@@ -174,6 +255,7 @@ plugin/
 
 - Bash only (no Python/Node) so the runtime dependency surface stays at
   `pj + jq + bash`.
-- No marketplace files in this directory — distribution is via either
-  `--plugin-dir` or a separate marketplace repo.
-- The plugin never modifies Phase 1/2 Go code. It is a pure wrapper.
+- The plugin never modifies Phase 1/2 Go code in `cmd/` or `internal/`.
+  It is a pure wrapper.
+- No marketplace files inside this directory — distribution is via the
+  top-level `.claude-plugin/marketplace.json`.

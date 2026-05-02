@@ -1,10 +1,13 @@
 {
   "name": "project-journal",
-  "version": "0.1.0",
-  "description": "Per-task journaling for Claude Code: inject task briefing on session start, log trajectory, induce summary on stop.",
+  "version": "0.2.0",
+  "description": "Per-task journaling for Claude Code: inject task briefing on session start, log trajectory, and induce summary on stop. Wraps the `pj` CLI for cross-session memory across multi-task projects.",
   "author": {
-    "name": "nhduc"
+    "name": "nhduc",
+    "email": "mr.minh97@gmail.com"
   },
+  "homepage": "https://github.com/nhdms/project-journal",
+  "repository": "https://github.com/nhdms/project-journal",
   "license": "MIT",
-  "keywords": ["journal", "task-tracking", "memory", "context", "reasoning-bank"]
+  "keywords": ["journal", "task-tracking", "memory", "context", "reasoning-bank", "session-continuity"]
 }

@@ -6,13 +6,16 @@
   "plugins": [
     {
       "name": "project-journal",
-      "description": "Per-task journaling: inject task briefing on session start, log trajectory, induce summary on stop.",
+      "description": "Per-task journaling for Claude Code: inject briefing on session start, log trajectory, induce summary on stop.",
       "source": {
         "source": "git-subdir",
         "url": "https://github.com/nhdms/project-journal.git",
         "path": "plugin"
       },
-      "category": "productivity"
+      "category": "productivity",
+      "version": "0.2.0",
+      "homepage": "https://github.com/nhdms/project-journal",
+      "license": "MIT"
     }
   ]
 }
