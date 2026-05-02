@@ -1,7 +1,6 @@
 ---
 name: journal-recall
 description: Use PROACTIVELY before starting any implementation work in a project that has a `.project-journal/` directory. Retrieves the briefing for the current active task (which includes phase context, hard dependencies, and top-5 semantically relevant past tasks via embedding search). Ensures Claude has full historical context before writing code. Triggers when about to: write new code, modify existing files, design a feature, debug an issue, or make architectural decisions — and a journal task is active OR the user just confirmed creating one via journal-bootstrap. Skip if the request is purely informational (read/explain) or if there is no active task.
-allowed-tools: Bash(pj current*), Bash(pj context*), Bash(pj tree*), Bash(test *)
 ---
 
 The user is about to do real implementation work. Pull the journal context first so prior tasks' decisions, files, and TODOs inform the current work.

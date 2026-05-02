@@ -2,7 +2,6 @@
 name: pj-review
 description: Review the LLM-induced summary of a finished task and suggest improvements — use when summary feels weak or you want a second-pass quality check
 argument-hint: "<task_id>"
-allowed-tools: Task, Bash(pj show*), Bash(pj tree*)
 ---
 
 The user wants a quality check on a project-journal task's induced summary. Delegate to the `journal-validator` agent.

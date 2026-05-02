@@ -1,7 +1,6 @@
 ---
 name: journal-bootstrap
 description: Use PROACTIVELY at the start of any task-oriented coding session. Checks whether project-journal is initialized in the current working directory and whether a task is currently active (`pj current`). If the project has no `.project-journal/` directory, offer to init it. If no task is active, propose creating and starting one based on the user's stated intent. Triggers when the user begins describing work to do — phrases like "let's build", "I want to implement", "add feature X", "fix bug Y", "refactor Z", "create the API for", or any imperative task request — AND no journal task is currently active. Do NOT trigger if the user's request is a question, code review, or read-only inspection.
-allowed-tools: Bash(pj init*), Bash(pj current*), Bash(pj task add*), Bash(pj start*), Bash(pj tree*), Bash(test *)
 ---
 
 The user is starting coding work. Before doing anything else, ensure the project journal is set up and a task is active so the work gets recorded.

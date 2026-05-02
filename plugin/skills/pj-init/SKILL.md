@@ -2,7 +2,6 @@
 name: pj-init
 description: Initialize project-journal in the current directory. Optionally create and start a first task in one go. Use this when user explicitly invokes `/project-journal:pj-init` or asks to "set up project journal" / "init journal".
 argument-hint: "[task_id task_title]"
-allowed-tools: Bash(pj init*), Bash(pj task add*), Bash(pj start*)
 ---
 
 Initialize project-journal in the current directory. If `$ARGUMENTS` is provided in the form `<task_id> <task_title...>`, also create and start that task.

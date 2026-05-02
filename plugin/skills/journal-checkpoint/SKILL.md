@@ -1,7 +1,6 @@
 ---
 name: journal-checkpoint
 description: Use after significant milestones or before risky operations during a journaled coding session. Logs a `checkpoint` trajectory event with a brief description so the eventual `pj finish --auto` LLM summary captures the moment. Trigger when: tests pass after non-trivial changes, a feature reaches "first working version", before destructive operations (`rm -rf`, `git push --force`, dropping tables, deleting branches), after a key architectural decision is made, or when the user explicitly says "this is working", "major progress", "milestone", "checkpoint". Skip if no journal task is active or for trivial events (single-line edits, read operations).
-allowed-tools: Bash(pj current*), Bash(pj log*)
 ---
 
 Log a checkpoint to the active task's trajectory.
