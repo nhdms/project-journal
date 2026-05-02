@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/nhduc/project-journal/internal/model"
+	"github.com/nhdms/project-journal/internal/model"
 )
 
 // AppendJSONL appends a single JSON-encoded record (followed by \n) to path.

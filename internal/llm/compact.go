@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nhduc/project-journal/internal/model"
+	"github.com/nhdms/project-journal/internal/model"
 )
 
 // DefaultMaxChars is the default character budget for a compacted trajectory.

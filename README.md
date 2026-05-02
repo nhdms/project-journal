@@ -1,68 +1,117 @@
 # project-journal (`pj`)
 
-A small CLI for journaling tasks across Claude Code (or any single-task)
-sessions. Phase 1 is purely manual: there is no LLM, no embeddings, and no
-hooks. Each task corresponds to one work session; the tool helps you remember
-what previous tasks did when you start new ones.
+Per-task journaling tool that gives Claude Code (or any coding workflow) **cross-session memory**. Each task = 1 work session; `pj` records what happened so the next task starts with context, not a blank slate.
+
+Ships with a Claude Code plugin that auto-injects briefings, logs trajectories, and induces summaries via LLM.
 
 ## Install
 
+### Linux / VPS — one-liner
+
 ```sh
-go install github.com/nhduc/project-journal/cmd/pj@latest
+curl -fsSL https://raw.githubusercontent.com/nhdms/project-journal/main/scripts/install.sh | sh
 ```
 
-Or build locally from this directory:
+Requirements (script will check):
+- Go 1.22+ (`sudo apt install -y golang-go` on Ubuntu/Debian)
+- `jq` (optional, only needed for the Claude Code plugin)
+
+### Manual install (any OS with Go)
 
 ```sh
+go install github.com/nhdms/project-journal/cmd/pj@latest
+
+# Add Go bin to PATH if not already
+export PATH="$(go env GOPATH)/bin:$PATH"
+pj --help
+```
+
+### Build from source
+
+```sh
+git clone https://github.com/nhdms/project-journal.git
+cd project-journal
 go build -o pj ./cmd/pj
+sudo mv pj /usr/local/bin/   # or any dir on PATH
 ```
 
 ## Quick start
 
 ```sh
+cd ~/your-project
 pj init
-pj phase add NHD-6 "Business Onboarding"
-pj task add NHD-23 "Business Registration" --phase NHD-6
-pj start NHD-23
-# ... do work ...
-pj finish NHD-23
+pj phase add NHD-6 "Onboarding"               # optional grouping
+pj task add NHD-23 "Biz registration" --phase NHD-6 --depends-on NHD-22
+pj start NHD-23                                # prints briefing, marks active
+# ... do work, log events ...
+pj finish NHD-23                               # interactive summary
 pj tree
 ```
 
+With `OPENAI_API_KEY` set, `pj finish` auto-induces summary + autoeval status:
+
+```sh
+export OPENAI_API_KEY="sk-proj-..."
+pj finish NHD-23 --auto                        # LLM proposes everything
+```
+
+## Claude Code plugin
+
+The `plugin/` subfolder is a Claude Code plugin that wires `pj` into Claude sessions automatically.
+
+Install:
+
+```
+/plugin marketplace add nhdms/project-journal
+/plugin install project-journal@project-journal-local
+```
+
+Then per project:
+
+```sh
+cd ~/your-project && pj init
+pj task add T1 "First task"
+pj start T1
+claude   # SessionStart hook injects briefing; Stop hook auto-induces summary
+```
+
+See [`plugin/README.md`](plugin/README.md) for full plugin docs.
+
 ## Storage layout
 
-`pj init` creates `.project-journal/` in the current directory:
+`pj init` creates `.project-journal/` in cwd:
 
 ```
 .project-journal/
-├── config.json          # {"version": 1, "created_at": "..."}
-├── current              # plain text: current task id (or empty)
-├── phases.jsonl         # one Phase per line
-├── tasks.jsonl          # one Task per line
-└── sessions/            # per-task trajectory logs
+├── config.json         # version + created_at
+├── current             # active task ID
+├── phases.jsonl        # one Phase per line
+├── tasks.jsonl         # one Task per line
+├── embeddings.jsonl    # OpenAI embeddings cache (Phase 2)
+└── sessions/           # per-task trajectory logs
     └── {task_id}.jsonl
 ```
 
-All commands except `init` walk up from the cwd to find `.project-journal/`.
-If none is found and stdin is interactive, you will be prompted to create one
-in the cwd. Pass `--no-prompt` to fail instead of asking.
+All commands except `init` walk up from cwd to find `.project-journal/`. Pass `--no-prompt` to fail instead of prompting.
 
-## Commands (Phase 1)
+## Commands
 
 | Command | Purpose |
 | --- | --- |
 | `pj init` | Create `.project-journal/` in cwd. |
 | `pj phase add <id> <title>` | Add a phase. |
 | `pj task add <id> <title> [--phase <id>] [--depends-on a,b,c]` | Add a task with `status=todo`. |
-| `pj start <id> [--title <t>] [--phase <id>]` | Mark a task `in_progress`, set it as current, print briefing. Will offer to create the task if missing. |
-| `pj finish <id> [--auto]` | End an `in_progress` task. Without `--auto`, prompts for a multi-line summary and a status (`completed` / `partial` / `blocked`). With `--auto`, marks as `needs_review`. |
-| `pj log <id> --type <...> [--tool ...] [--content ...] [--input-summary ...] [--output-summary ...] [--first-only]` | Append a trajectory event to `sessions/{id}.jsonl`. Reserved for future hook-driven flows. |
-| `pj show <id>` | Print a task or phase. |
-| `pj tree` | ASCII tree of phases and tasks with status icons. |
-| `pj context [--for <id>]` | Markdown briefing for the current (or specified) task. |
-| `pj edit <id>` | Open the task or phase as JSON in `$EDITOR` (default `vi`). |
-| `pj status` | High-level summary (counts, current task, last finished). |
-| `pj current [--quiet]` | Print the current active task ID. Exits 1 if none. |
+| `pj start <id> [--title <t>] [--phase <id>]` | Mark `in_progress`, set as current, print briefing. Lazy-creates if missing. |
+| `pj finish <id> [--auto]` | End task. With `OPENAI_API_KEY`, LLM proposes summary + autoeval status. Without key OR `--auto` without key: marks `needs_review`. |
+| `pj induce <id>` | Re-run LLM induction on a finished task. |
+| `pj reindex [--force]` | (Re)build embeddings for all finished tasks. |
+| `pj log <id> --type <...> [flags]` | Append trajectory event. Used by plugin hooks. |
+| `pj show <id>` | Print task/phase detail. |
+| `pj tree` | ASCII tree with status icons. |
+| `pj context [--for <id>]` | Markdown briefing (deps + relevant past tasks via embeddings). |
+| `pj edit <id>` | Open task/phase in `$EDITOR`. |
+| `pj status` | Stats overview. |
+| `pj current [--quiet]` | Print active task ID. Exits 1 if none. |
 
 ### Status values
 
@@ -72,14 +121,28 @@ in the cwd. Pass `--no-prompt` to fail instead of asking.
 
 - 🎯 Current Task
 - 📦 Phase Goal
-- ✅ Completed in this phase (top 5 most-recent siblings)
-- 🔗 Hard dependencies
-- 🚧 Open TODOs aggregated from completed tasks
+- 🔗 Hard dependencies (with summaries)
+- ✨ Relevant past tasks (top 5, blended scoring: cosine + dep boost + same-phase + recency)
 - ⏭️ Coming next (sibling todos)
 
-## Notes
+## Configuration
 
-- JSONL files are line-delimited JSON. Append-style writes use `O_APPEND`;
-  rewrites (e.g., on `finish` or `edit`) write to a temp file and `rename`.
-- Timestamps are UTC, formatted with `time.RFC3339Nano`.
-- LLM features, embeddings, and hooks are explicitly out of scope for Phase 1.
+Environment variables (all optional except `OPENAI_API_KEY` for LLM features):
+
+| Var | Default | Purpose |
+|-----|---------|---------|
+| `OPENAI_API_KEY` | — | Required for LLM induce, autoeval, embeddings. |
+| `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Chat completion model. |
+| `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model. |
+| `OPENAI_TIMEOUT_SECONDS` | `60` | Per-call timeout. |
+| `OPENAI_BASE_URL` | OpenAI default | Override for proxies / Azure. |
+
+## Storage notes
+
+- JSONL: line-delimited JSON. Append uses `O_APPEND`; rewrites use temp + atomic rename.
+- Timestamps UTC, `time.RFC3339Nano`.
+- `embeddings.jsonl` contains task vectors; safe to delete (regenerate via `pj reindex`).
+
+## License
+
+MIT

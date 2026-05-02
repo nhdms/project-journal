@@ -3,7 +3,7 @@ package cli
 import (
 	"os"
 
-	"github.com/nhduc/project-journal/internal/store"
+	"github.com/nhdms/project-journal/internal/store"
 	"github.com/spf13/cobra"
 )
 

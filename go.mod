@@ -1,4 +1,4 @@
-module github.com/nhduc/project-journal
+module github.com/nhdms/project-journal
 
 go 1.22
 

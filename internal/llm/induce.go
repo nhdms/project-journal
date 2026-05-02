@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nhduc/project-journal/internal/model"
+	"github.com/nhdms/project-journal/internal/model"
 )
 
 // InduceProposal is the structured summary the LLM extracts from a trajectory.

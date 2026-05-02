@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/nhduc/project-journal/internal/model"
+	"github.com/nhdms/project-journal/internal/model"
 )
 
 // BuildEmbeddingText composes the canonical text used for a task embedding.

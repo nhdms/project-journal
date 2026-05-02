@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nhduc/project-journal/internal/model"
+	"github.com/nhdms/project-journal/internal/model"
 )
 
 // InduceSystemPrompt instructs the model to extract a structured summary

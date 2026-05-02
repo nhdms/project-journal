@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/nhduc/project-journal/internal/model"
-	"github.com/nhduc/project-journal/internal/store"
+	"github.com/nhdms/project-journal/internal/model"
+	"github.com/nhdms/project-journal/internal/store"
 	"github.com/spf13/cobra"
 )
 

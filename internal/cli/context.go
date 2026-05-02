@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nhduc/project-journal/internal/llm"
-	"github.com/nhduc/project-journal/internal/model"
-	"github.com/nhduc/project-journal/internal/store"
+	"github.com/nhdms/project-journal/internal/llm"
+	"github.com/nhdms/project-journal/internal/model"
+	"github.com/nhdms/project-journal/internal/store"
 	"github.com/spf13/cobra"
 )
 
