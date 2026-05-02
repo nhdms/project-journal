@@ -10,10 +10,9 @@
 # shellcheck disable=SC1091
 . "$(dirname "$0")/_common.sh"
 
-# Render briefing for the current task. If `pj context` fails or returns
-# empty, exit silently — we don't want to inject a noisy header.
 BRIEFING=$(pj context --for "$PJ_TASK" 2>/dev/null || true)
 if [ -z "$BRIEFING" ]; then
+  log_info "session-start: no briefing for task $PJ_TASK"
   exit 0
 fi
 

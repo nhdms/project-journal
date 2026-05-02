@@ -12,6 +12,10 @@ set -u
 
 PJ_HOOK_LOG="${HOME}/.project-journal-hook.log"
 
+log_info() {
+  { echo "[$(date -u +%FT%TZ)] [INFO] [$(basename "${0:-hook}")] $*" >> "$PJ_HOOK_LOG"; } 2>/dev/null || true
+}
+
 log_err() {
   # Best-effort: never let a logging failure propagate.
   { echo "[$(date -u +%FT%TZ)] [$(basename "${0:-hook}")] $*" >> "$PJ_HOOK_LOG"; } 2>/dev/null || true
