@@ -33,7 +33,13 @@ func NewCurrentCmd() *cobra.Command {
 				}
 				os.Exit(1)
 			}
-			l := store.LayoutFor(root)
+			l, err := store.LayoutFor(root)
+			if err != nil {
+				if !quiet {
+					return err
+				}
+				os.Exit(1)
+			}
 			cur, err := store.ReadCurrent(l)
 			if err != nil {
 				if !quiet {

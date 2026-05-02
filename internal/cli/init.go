@@ -23,7 +23,10 @@ func NewInitCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			l := store.LayoutFor(cwd)
+			l, err := store.LayoutFor(cwd)
+			if err != nil {
+				return err
+			}
 			if !created {
 				fmt.Printf("Already initialized at %s\n", l.Dir)
 				return nil
