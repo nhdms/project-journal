@@ -1,5 +1,5 @@
-pj
+/pj
 .DS_Store
 .project-journal/
 .omc/
-~/.project-journal-hook.log
+*.project-journal-hook.log
