@@ -13,6 +13,94 @@ set -e
 
 REPO="nhdms/project-journal"
 PJ_VERSION="${PJ_VERSION:-latest}"
+PJ_ASSUME_YES="${PJ_ASSUME_YES:-}"
+
+# Open /dev/tty for prompts when stdin is a pipe (curl | sh)
+if [ -t 0 ]; then
+  TTY=/dev/stdin
+elif [ -r /dev/tty ]; then
+  TTY=/dev/tty
+else
+  TTY=""
+fi
+
+# confirm "Question" "default(Y|n)" → returns 0 yes / 1 no
+confirm() {
+  prompt="$1"
+  default="${2:-Y}"
+  hint="[Y/n]"
+  [ "${default}" = "n" ] && hint="[y/N]"
+
+  if [ "${PJ_ASSUME_YES}" = "1" ]; then
+    echo "${prompt} ${hint} → yes (PJ_ASSUME_YES=1)"
+    return 0
+  fi
+
+  if [ -z "${TTY}" ]; then
+    # Non-interactive: use default
+    echo "${prompt} ${hint} → ${default} (non-interactive)"
+    [ "${default}" = "Y" ] && return 0 || return 1
+  fi
+
+  printf "%s %s " "${prompt}" "${hint}"
+  read -r ans < "${TTY}" || ans=""
+  case "${ans}" in
+    [Yy]|[Yy][Ee][Ss]) return 0 ;;
+    [Nn]|[Nn][Oo]) return 1 ;;
+    "") [ "${default}" = "Y" ] && return 0 || return 1 ;;
+    *) [ "${default}" = "Y" ] && return 0 || return 1 ;;
+  esac
+}
+
+# Detect package manager + offer to install jq
+ensure_jq() {
+  if command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo ""
+  echo "==> jq is not installed."
+  echo "    jq is required for:"
+  echo "      - Installing the Claude Code plugin (this script)"
+  echo "      - Plugin hooks at runtime (parsing event payloads)"
+  echo ""
+
+  CMD=""
+  if command -v apt-get >/dev/null 2>&1; then
+    CMD="sudo apt-get install -y jq"
+  elif command -v dnf >/dev/null 2>&1; then
+    CMD="sudo dnf install -y jq"
+  elif command -v yum >/dev/null 2>&1; then
+    CMD="sudo yum install -y jq"
+  elif command -v pacman >/dev/null 2>&1; then
+    CMD="sudo pacman -S --noconfirm jq"
+  elif command -v apk >/dev/null 2>&1; then
+    CMD="sudo apk add jq"
+  elif command -v brew >/dev/null 2>&1; then
+    CMD="brew install jq"
+  fi
+
+  if [ -z "${CMD}" ]; then
+    echo "    No supported package manager detected. Install jq manually:"
+    echo "      https://stedolan.github.io/jq/download/"
+    return 1
+  fi
+
+  echo "    Detected install command: ${CMD}"
+  if confirm "    Run it now?" "Y"; then
+    sh -c "${CMD}"
+    if command -v jq >/dev/null 2>&1; then
+      echo "==> jq installed ✓"
+      return 0
+    else
+      echo "==> jq install reported success but binary not found in PATH."
+      return 1
+    fi
+  else
+    echo "==> Skipping jq install."
+    return 1
+  fi
+}
 
 # ────────────────────────────────────────────────
 # 1) Binary install
@@ -121,8 +209,16 @@ install_plugin() {
     return 0
   fi
 
-  if ! command -v jq >/dev/null 2>&1; then
-    echo "==> jq required for plugin install — skipping (install jq and rerun with PJ_PLUGIN_ONLY=1)"
+  echo ""
+  echo "==> Claude Code detected at ${CLAUDE_DIR}"
+  if ! confirm "    Install the project-journal plugin into Claude Code?" "Y"; then
+    echo "==> Skipping plugin install."
+    print_manual_plugin_instructions
+    return 0
+  fi
+
+  if ! ensure_jq; then
+    echo "==> jq is required to register the plugin. Skipping."
     print_manual_plugin_instructions
     return 0
   fi
@@ -217,17 +313,8 @@ if [ "${PJ_SKIP_PLUGIN}" != "1" ]; then
 fi
 
 # ────────────────────────────────────────────────
-# 4) Post-install checks
+# 4) Done
 # ────────────────────────────────────────────────
-
-if ! command -v jq >/dev/null 2>&1; then
-  echo ""
-  echo "==> NOTE: jq is required for the Claude Code plugin hooks at runtime."
-  echo "    Ubuntu/Debian:  sudo apt install -y jq"
-  echo "    Fedora/RHEL:    sudo dnf install -y jq"
-  echo "    Arch:           sudo pacman -S jq"
-  echo "    macOS:          brew install jq"
-fi
 
 echo ""
 echo "Done."
