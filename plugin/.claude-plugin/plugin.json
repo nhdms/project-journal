@@ -1,6 +1,6 @@
 {
   "name": "project-journal",
-  "version": "0.3.0",
+  "version": "0.4.1",
   "description": "Per-task journaling with autonomous Claude Code integration: auto-init, auto-context-recall, auto-checkpointing, plus hooks that log trajectory and induce summaries on session end.",
   "author": {
     "name": "nhduc",
