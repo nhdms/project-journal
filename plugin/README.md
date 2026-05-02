@@ -153,6 +153,19 @@ pj edit T2     # tweak summary / status as JSON
 | `/project-journal:pj-current` | Print the current active task ID                                 |
 | `/project-journal:pj-context` | Render briefing for current task; pass an ID for a specific task |
 | `/project-journal:pj-review`  | Score a finished task's summary and propose improvements         |
+| `/project-journal:pj-init`    | Init journal in current dir, optionally create + start a task    |
+
+## Auto-invoked skills (no slash needed)
+
+These skills trigger automatically based on context — Claude Code activates them when their description matches what you're doing.
+
+| Skill | Auto-triggers when... |
+|-------|----------------------|
+| `journal-bootstrap` | You start describing work ("let's build X") and no journal task is active. Offers to init/create a task. |
+| `journal-recall` | You're about to implement code in a journaled project. Pulls briefing with deps + relevant past tasks. |
+| `journal-checkpoint` | A milestone is reached or risky operation imminent. Silently logs a checkpoint event for the induce summary. |
+
+You can disable any skill by removing its directory or by setting `disable-model-invocation: true` in its frontmatter.
 
 ---
 

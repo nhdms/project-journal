@@ -1,7 +1,7 @@
 {
   "name": "project-journal",
-  "version": "0.2.0",
-  "description": "Per-task journaling for Claude Code: inject task briefing on session start, log trajectory, and induce summary on stop. Wraps the `pj` CLI for cross-session memory across multi-task projects.",
+  "version": "0.3.0",
+  "description": "Per-task journaling with autonomous Claude Code integration: auto-init, auto-context-recall, auto-checkpointing, plus hooks that log trajectory and induce summaries on session end.",
   "author": {
     "name": "nhduc",
     "email": "mr.minh97@gmail.com"
