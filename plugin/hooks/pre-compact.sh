@@ -4,6 +4,7 @@
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/_common.sh"
+pj_require_task
 
 TS=$(date -u +%FT%TZ)
 TRIGGER=$(printf '%s' "$HOOK_INPUT" | jq -r '.trigger // "unknown"' 2>/dev/null || echo "unknown")

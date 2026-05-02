@@ -5,6 +5,7 @@
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/_common.sh"
+pj_require_task
 
 PROMPT=$(printf '%s' "$HOOK_INPUT" | jq -r '.prompt // empty' 2>/dev/null || true)
 if [ -z "$PROMPT" ]; then

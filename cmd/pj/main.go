@@ -12,11 +12,14 @@ func main() {
 	root := &cobra.Command{
 		Use:           "pj",
 		Short:         "project-journal — task journal for multi-task projects",
+		Version:       cli.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.SetVersionTemplate("{{.Version}}\n")
 	cli.AddGlobalFlags(root)
 	root.AddCommand(
+		cli.NewVersionCmd(),
 		cli.NewInitCmd(),
 		cli.NewPhaseCmd(),
 		cli.NewTaskCmd(),

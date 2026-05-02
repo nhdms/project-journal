@@ -10,6 +10,7 @@
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/_common.sh"
+pj_require_task
 
 TOOL_NAME=$(printf '%s' "$HOOK_INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
 if [ -z "$TOOL_NAME" ]; then

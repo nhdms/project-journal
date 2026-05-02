@@ -5,6 +5,7 @@
 
 # shellcheck disable=SC1091
 . "$(dirname "$0")/_common.sh"
+pj_require_task
 
 # Background-spawn so a multi-second LLM call doesn't hang the session.
 # `nohup ... &` plus `disown` detaches from this script's process group.

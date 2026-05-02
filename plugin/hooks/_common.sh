@@ -47,10 +47,30 @@ if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
 fi
 
 # Resolve current task. `pj current --quiet` exits non-zero with empty
-# stdout when there is no active task; treat both as "skip".
+# stdout both when project-journal isn't initialized and when no task is
+# active. Hooks that require a task should call `pj_require_task` after
+# sourcing; session-start handles the empty case itself.
 PJ_TASK=$(pj current --quiet 2>/dev/null || true)
-if [ -z "$PJ_TASK" ]; then
-  exit 0
-fi
+
+pj_require_task() {
+  if [ -z "$PJ_TASK" ]; then
+    exit 0
+  fi
+}
+
+# True (exit 0) iff a `.project-journal` marker exists in the current
+# working directory or any ancestor. We can't rely on `pj status` because
+# it falls back to ~/.project-journal/ when no marker is found.
+pj_is_initialized() {
+  local d
+  d=$(pwd)
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    if [ -e "$d/.project-journal" ]; then
+      return 0
+    fi
+    d=$(dirname "$d")
+  done
+  return 1
+}
 
 export PJ_HOOK_LOG HOOK_INPUT HOOK_CWD PJ_TASK
