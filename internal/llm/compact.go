@@ -74,11 +74,14 @@ func CompactTrajectory(events []model.TrajectoryEvent, maxChars int) []model.Tra
 	return out
 }
 
+// truncate shortens s to at most n runes (not bytes). This avoids splitting
+// multi-byte UTF-8 sequences, which would produce invalid Unicode output.
 func truncate(s string, n int) string {
-	if len(s) <= n {
+	runes := []rune(s)
+	if len(runes) <= n {
 		return s
 	}
-	return s[:n] + "…[truncated]"
+	return string(runes[:n]) + "…[truncated]"
 }
 
 func eventCharLen(events []model.TrajectoryEvent) int {

@@ -48,9 +48,19 @@ OUTPUT_SUMMARY=$(
     else (. | tostring) end' 2>/dev/null || true
 )
 
-# Truncate both to 500 chars to keep the session log lean.
+# Truncate to 500 Unicode characters (not bytes) to keep the session log lean.
+# `cut -c` counts characters in any locale with a proper LC_ALL; this is
+# reliable on modern Linux and macOS. Multi-byte sequences are preserved as
+# long as the shell and cut agree on the encoding (UTF-8 expected).
 truncate500() {
-  awk -v s="$1" 'BEGIN{ if (length(s) > 500) print substr(s,1,500) "...[truncated]"; else print s }'
+  local s="$1"
+  # Use printf + cut to avoid subshell word-splitting issues with special chars.
+  if [ "$(printf '%s' "$s" | wc -m | tr -d ' ')" -gt 500 ] 2>/dev/null; then
+    printf '%s' "$s" | cut -c1-500
+    printf '...[truncated]'
+  else
+    printf '%s' "$s"
+  fi
 }
 INPUT_SUMMARY=$(truncate500 "$INPUT_SUMMARY")
 OUTPUT_SUMMARY=$(truncate500 "$OUTPUT_SUMMARY")
