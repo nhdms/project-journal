@@ -10,7 +10,7 @@ import (
 // The default value is the fallback used when the binary is built without
 // -ldflags="-X github.com/nhdms/project-journal/internal/cli.Version=<tag>".
 // Release binaries override this via ldflags in the CI build.
-var Version = "0.5.0"
+var Version = "0.6.0"
 
 // NewVersionCmd creates `pj version`.
 func NewVersionCmd() *cobra.Command {
