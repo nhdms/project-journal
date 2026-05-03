@@ -10,13 +10,8 @@
 // or schema mismatches are non-fatal: the index is wiped and rebuilt on
 // next open.
 //
-// Two implementations are provided behind build tags:
-//
-//   - default (no build tag): a noop implementation that does nothing.
-//     Callers fall back to JSONL-based code paths. Pure Go, no CGO.
-//   - `pj_duckdb`: a DuckDB-backed implementation. Requires CGO. Provides
-//     full mirror of tasks, phases, embeddings, and trajectory plus SQL
-//     vector similarity via array_cosine_similarity.
+// DuckDB is always compiled in. If opening fails (e.g. CGO unavailable),
+// a noop fallback is returned.
 //
 // The package-level For(dir) function returns the index for a given data
 // directory, opening it lazily and caching it for the process lifetime.

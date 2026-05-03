@@ -5,6 +5,7 @@ go 1.24
 toolchain go1.24.5
 
 require (
+	github.com/marcboeker/go-duckdb/v2 v2.4.3
 	github.com/sashabaranov/go-openai v1.41.2
 	github.com/spf13/cobra v1.8.1
 )
@@ -26,7 +27,6 @@ require (
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/marcboeker/go-duckdb/arrowmapping v0.0.21 // indirect
 	github.com/marcboeker/go-duckdb/mapping v0.0.21 // indirect
-	github.com/marcboeker/go-duckdb/v2 v2.4.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect

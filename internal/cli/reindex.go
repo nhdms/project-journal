@@ -30,10 +30,6 @@ func NewReindexCmd() *cobra.Command {
 				return err
 			}
 			if check {
-				if !store.IndexEnabled() {
-					fmt.Println("Derived index: disabled (build without pj_duckdb tag).")
-					return nil
-				}
 				r, err := store.IndexDrift(l)
 				if err != nil {
 					return fmt.Errorf("drift: %w", err)
@@ -49,10 +45,6 @@ func NewReindexCmd() *cobra.Command {
 				return nil
 			}
 			if indexOnly {
-				if !store.IndexEnabled() {
-					fmt.Fprintln(os.Stderr, "derived index disabled in this build (compile with -tags pj_duckdb to enable)")
-					return nil
-				}
 				if err := store.RebuildIndex(l); err != nil {
 					return fmt.Errorf("rebuild index: %w", err)
 				}

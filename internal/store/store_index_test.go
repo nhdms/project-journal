@@ -1,5 +1,3 @@
-//go:build pj_duckdb
-
 package store_test
 
 import (
