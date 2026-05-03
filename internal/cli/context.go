@@ -241,7 +241,9 @@ func computeEmbeddingScores(l store.Layout, t model.Task, pool []model.Task) map
 	if err != nil || len(cached) == 0 {
 		return out
 	}
-	if !llm.HasAPIKey() {
+	// Only attempt live embedding if LLM is allowed (privacy gate + API key).
+	cfg, _ := store.LoadConfig(l)
+	if !llm.HasAPIKey() || !llm.IsLLMAllowed(cfg.LLMEnabled) {
 		// We can still compute cosines among cached vectors only if the query
 		// task itself is cached. Try that first.
 		if rec, ok := store.FindEmbedding(cached, t.ID); ok {
@@ -265,7 +267,10 @@ func computeEmbeddingScores(l store.Layout, t model.Task, pool []model.Task) map
 	if strings.TrimSpace(queryText) == "" {
 		return out
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout())
+	// Use a tight 5s timeout for the context rendering path; this is on the
+	// critical path of session-start and must not stall Claude Code.
+	const contextEmbedTimeout = 5 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), contextEmbedTimeout)
 	defer cancel()
 	qvec, err := c.Embed(ctx, queryText)
 	if err != nil {

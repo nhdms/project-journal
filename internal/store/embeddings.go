@@ -53,31 +53,33 @@ func LoadEmbeddings(l Layout) ([]EmbeddingRecord, error) {
 // UpsertEmbedding replaces (or inserts) the record for rec.TaskID and rewrites
 // the file atomically.
 func UpsertEmbedding(l Layout, rec EmbeddingRecord) error {
-	existing, err := LoadEmbeddings(l)
-	if err != nil {
-		return err
-	}
-	replaced := false
-	for i, r := range existing {
-		if r.TaskID == rec.TaskID {
-			existing[i] = rec
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		existing = append(existing, rec)
-	}
-
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	for _, r := range existing {
-		if err := enc.Encode(r); err != nil {
+	return withLock(l.Dir, func() error {
+		existing, err := LoadEmbeddings(l)
+		if err != nil {
 			return err
 		}
-	}
-	return WriteFileAtomic(embeddingsPath(l), buf.Bytes(), 0o644)
+		replaced := false
+		for i, r := range existing {
+			if r.TaskID == rec.TaskID {
+				existing[i] = rec
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			existing = append(existing, rec)
+		}
+
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		for _, r := range existing {
+			if err := enc.Encode(r); err != nil {
+				return err
+			}
+		}
+		return WriteFileAtomic(embeddingsPath(l), buf.Bytes(), 0o644)
+	})
 }
 
 // HasEmbedding reports whether an embedding exists for taskID.

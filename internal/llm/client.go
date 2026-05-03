@@ -19,6 +19,9 @@ const (
 	envEmbedModel = "OPENAI_EMBED_MODEL"
 	envTimeout    = "OPENAI_TIMEOUT_SECONDS"
 	envBaseURL    = "OPENAI_BASE_URL"
+	// EnvNoLLM disables all LLM calls when set to "1", regardless of config.
+	// Hooks set this to prevent live network calls on the critical path.
+	EnvNoLLM = "PJ_NO_LLM"
 
 	defaultChatModel  = "gpt-4o-mini"
 	defaultEmbedModel = "text-embedding-3-small"
@@ -37,6 +40,19 @@ type Client struct {
 // Use to gate LLM-dependent flows.
 func HasAPIKey() bool {
 	return os.Getenv(envAPIKey) != ""
+}
+
+// IsLLMAllowed returns true only when:
+//   - PJ_NO_LLM is not set to "1", AND
+//   - configEnabled is true (from config.json llm_enabled field)
+//
+// Callers should pass store.LoadConfig(l).LLMEnabled as configEnabled.
+// This is the single chokepoint for the privacy gate.
+func IsLLMAllowed(configEnabled bool) bool {
+	if os.Getenv(EnvNoLLM) == "1" {
+		return false
+	}
+	return configEnabled
 }
 
 // NewClient builds a Client from environment variables. Returns an error

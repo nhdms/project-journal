@@ -122,67 +122,75 @@ func FindTask(tasks []model.Task, id string) (model.Task, bool) {
 
 // AppendPhase appends a phase, erroring if a phase with the same ID exists.
 func AppendPhase(l Layout, p model.Phase) error {
-	existing, err := LoadPhases(l)
-	if err != nil {
-		return err
-	}
-	if _, ok := FindPhase(existing, p.ID); ok {
-		return fmt.Errorf("phase %q already exists", p.ID)
-	}
-	return AppendJSONL(l.PhasesJSONL, p)
+	return withLock(l.Dir, func() error {
+		existing, err := LoadPhases(l)
+		if err != nil {
+			return err
+		}
+		if _, ok := FindPhase(existing, p.ID); ok {
+			return fmt.Errorf("phase %q already exists", p.ID)
+		}
+		return AppendJSONL(l.PhasesJSONL, p)
+	})
 }
 
 // AppendTask appends a task, erroring if a task with the same ID exists.
 func AppendTask(l Layout, t model.Task) error {
-	existing, err := LoadTasks(l)
-	if err != nil {
-		return err
-	}
-	if _, ok := FindTask(existing, t.ID); ok {
-		return fmt.Errorf("task %q already exists", t.ID)
-	}
-	return AppendJSONL(l.TasksJSONL, t)
+	return withLock(l.Dir, func() error {
+		existing, err := LoadTasks(l)
+		if err != nil {
+			return err
+		}
+		if _, ok := FindTask(existing, t.ID); ok {
+			return fmt.Errorf("task %q already exists", t.ID)
+		}
+		return AppendJSONL(l.TasksJSONL, t)
+	})
 }
 
 // ReplaceTask replaces a task by ID. Errors if no task with that ID exists.
 // Rewrites tasks.jsonl atomically.
 func ReplaceTask(l Layout, t model.Task) error {
-	tasks, err := LoadTasks(l)
-	if err != nil {
-		return err
-	}
-	found := false
-	for i, x := range tasks {
-		if x.ID == t.ID {
-			tasks[i] = t
-			found = true
-			break
+	return withLock(l.Dir, func() error {
+		tasks, err := LoadTasks(l)
+		if err != nil {
+			return err
 		}
-	}
-	if !found {
-		return fmt.Errorf("task %q not found", t.ID)
-	}
-	return writeTasks(l, tasks)
+		found := false
+		for i, x := range tasks {
+			if x.ID == t.ID {
+				tasks[i] = t
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("task %q not found", t.ID)
+		}
+		return writeTasks(l, tasks)
+	})
 }
 
 // ReplacePhase replaces a phase by ID. Errors if not found.
 func ReplacePhase(l Layout, p model.Phase) error {
-	phases, err := LoadPhases(l)
-	if err != nil {
-		return err
-	}
-	found := false
-	for i, x := range phases {
-		if x.ID == p.ID {
-			phases[i] = p
-			found = true
-			break
+	return withLock(l.Dir, func() error {
+		phases, err := LoadPhases(l)
+		if err != nil {
+			return err
 		}
-	}
-	if !found {
-		return fmt.Errorf("phase %q not found", p.ID)
-	}
-	return writePhases(l, phases)
+		found := false
+		for i, x := range phases {
+			if x.ID == p.ID {
+				phases[i] = p
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("phase %q not found", p.ID)
+		}
+		return writePhases(l, phases)
+	})
 }
 
 func writeTasks(l Layout, tasks []model.Task) error {
@@ -232,7 +240,9 @@ func AppendTrajectory(l Layout, taskID string, ev model.TrajectoryEvent) error {
 		return err
 	}
 	path := filepath.Join(l.SessionsDir, taskID+".jsonl")
-	return AppendJSONL(path, ev)
+	return withLock(l.Dir, func() error {
+		return AppendJSONL(path, ev)
+	})
 }
 
 // LoadTrajectory loads all events for a task. Returns nil if no log exists.

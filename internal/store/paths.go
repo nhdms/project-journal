@@ -150,8 +150,37 @@ func FindRoot(start string) (string, bool) {
 
 // Config is the on-disk schema for config.json.
 type Config struct {
-	Version   int       `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
+	Version    int       `json:"version"`
+	CreatedAt  time.Time `json:"created_at"`
+	LLMEnabled bool      `json:"llm_enabled,omitempty"` // default false; must be explicitly opted in
+}
+
+// LoadConfig reads config.json for the given layout. Returns a zero Config
+// (with LLMEnabled=false) if the file is absent or the field is missing —
+// safe for backwards compatibility with older journals.
+func LoadConfig(l Layout) (Config, error) {
+	data, err := os.ReadFile(l.Config)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return Config{}, nil
+		}
+		return Config{}, err
+	}
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return Config{}, fmt.Errorf("parse %s: %w", l.Config, err)
+	}
+	return cfg, nil
+}
+
+// SaveConfig writes cfg to config.json atomically.
+func SaveConfig(l Layout, cfg Config) error {
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return WriteFileAtomic(l.Config, data, 0o644)
 }
 
 // Init creates the home-dir data directory plus the marker file at root. If

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -29,51 +30,67 @@ func NewFinishCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tasks, err := store.LoadTasks(l)
-			if err != nil {
-				return err
-			}
-			t, ok := store.FindTask(tasks, id)
-			if !ok {
-				return fmt.Errorf("task %q not found", id)
-			}
-			if t.Status != model.StatusInProgress {
-				return fmt.Errorf("task %s is not in_progress (status=%s)", id, t.Status)
-			}
-			now := time.Now().UTC()
-			t.EndedAt = &now
 
-			events, _ := store.LoadTrajectory(l, id)
-
-			// Decide whether to attempt LLM analysis.
-			var client *llm.Client
-			if llm.HasAPIKey() && len(events) > 0 {
-				c, err := llm.NewClient()
+			err = store.WithFinishLock(l.Dir, id, func() error {
+				tasks, err := store.LoadTasks(l)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "warning: LLM unavailable: %v\n", err)
-				} else {
-					client = c
-				}
-			}
-
-			if client != nil {
-				if handled, ferr := finishWithLLM(cmd.Context(), client, l, &t, events, auto); ferr != nil {
-					return ferr
-				} else if handled {
-					return finalizeFinish(l, t)
-				}
-				// fall through to manual on LLM total failure
-			}
-
-			// Manual / Phase-1 fallback.
-			if auto {
-				t.Status = model.StatusNeedsReview
-			} else {
-				if err := manualFinishPrompt(&t); err != nil {
 					return err
 				}
+				t, ok := store.FindTask(tasks, id)
+				if !ok {
+					return fmt.Errorf("task %q not found", id)
+				}
+				if t.Status != model.StatusInProgress {
+					return fmt.Errorf("task %s is not in_progress (status=%s)", id, t.Status)
+				}
+				now := time.Now().UTC()
+				t.EndedAt = &now
+
+				events, _ := store.LoadTrajectory(l, id)
+
+				// Decide whether to attempt LLM analysis.
+				// Privacy gate: requires llm_enabled=true in config.json AND
+				// PJ_NO_LLM must not be set to "1".
+				var client *llm.Client
+				cfg, _ := store.LoadConfig(l)
+				if llm.HasAPIKey() && llm.IsLLMAllowed(cfg.LLMEnabled) && len(events) > 0 {
+					c, err := llm.NewClient()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "warning: LLM unavailable: %v\n", err)
+					} else {
+						client = c
+					}
+				}
+
+				if client != nil {
+					if handled, ferr := finishWithLLM(cmd.Context(), client, l, &t, events, auto); ferr != nil {
+						return ferr
+					} else if handled {
+						return finalizeFinish(l, t)
+					}
+					// fall through to manual on LLM total failure
+				}
+
+				// Manual / Phase-1 fallback.
+				if auto {
+					t.Status = model.StatusNeedsReview
+				} else {
+					if err := manualFinishPrompt(&t); err != nil {
+						return err
+					}
+				}
+				return finalizeFinish(l, t)
+			})
+			if err != nil {
+				var alreadyRunning store.ErrFinishAlreadyRunning
+				if errors.As(err, &alreadyRunning) {
+					// Another finish process is in flight; exit silently (hook path).
+					fmt.Fprintf(os.Stderr, "pj finish: already running for task %s, skipping\n", id)
+					return nil
+				}
+				return err
 			}
-			return finalizeFinish(l, t)
+			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&auto, "auto", false, "Skip prompts; auto-apply LLM proposal (or mark needs_review without LLM)")
