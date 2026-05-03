@@ -11,6 +11,53 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// validStatuses is the exhaustive set of allowed task status values.
+var validStatuses = map[string]bool{
+	model.StatusTodo:        true,
+	model.StatusInProgress:  true,
+	model.StatusCompleted:   true,
+	model.StatusPartial:     true,
+	model.StatusBlocked:     true,
+	model.StatusNeedsReview: true,
+}
+
+// validateEditedTask checks constraints on a post-edit task against the
+// original and the known phase IDs. Returns a descriptive error or nil.
+func validateEditedTask(orig, edited model.Task, phases []model.Phase) error {
+	// ID must not change (belt-and-suspenders; caller also checks).
+	if edited.ID != orig.ID {
+		return fmt.Errorf("task ID cannot be changed (%q -> %q)", orig.ID, edited.ID)
+	}
+
+	// Status must be one of the known constants.
+	if !validStatuses[edited.Status] {
+		return fmt.Errorf("invalid status %q; allowed: todo, in_progress, completed, partial, blocked, needs_review", edited.Status)
+	}
+
+	// PhaseID must exist if set.
+	if edited.PhaseID != "" {
+		found := false
+		for _, p := range phases {
+			if p.ID == edited.PhaseID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("phase_id %q does not exist", edited.PhaseID)
+		}
+	}
+
+	// DependsOn must not contain self-reference.
+	for _, dep := range edited.DependsOn {
+		if dep == edited.ID {
+			return fmt.Errorf("task cannot depend on itself (%q)", edited.ID)
+		}
+	}
+
+	return nil
+}
+
 // NewEditCmd creates `pj edit`.
 func NewEditCmd() *cobra.Command {
 	return &cobra.Command{
@@ -77,6 +124,10 @@ func openInEditor(initial []byte, suffix string) ([]byte, error) {
 }
 
 func editTask(l store.Layout, t model.Task) error {
+	phases, err := store.LoadPhases(l)
+	if err != nil {
+		return err
+	}
 	original, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return err
@@ -102,8 +153,17 @@ func editTask(l store.Layout, t model.Task) error {
 			current = edited
 			continue
 		}
-		if nt.ID != t.ID {
-			return fmt.Errorf("task ID cannot be changed (%q -> %q)", t.ID, nt.ID)
+		if verr := validateEditedTask(t, nt, phases); verr != nil {
+			fmt.Fprintf(os.Stderr, "Validation error: %v\n", verr)
+			yes, perr := PromptYesNo(r, "Re-edit? [Y/n]: ")
+			if perr != nil {
+				return perr
+			}
+			if !yes {
+				return verr
+			}
+			current = edited
+			continue
 		}
 		return store.ReplaceTask(l, nt)
 	}
