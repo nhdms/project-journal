@@ -131,59 +131,56 @@ func finishWithLLM(ctx context.Context, c *llm.Client, l store.Layout, t *model.
 		return true, nil
 	}
 
-	// Interactive: print and prompt.
+	// Interactive: print and prompt. Re-prompt on unrecognised input.
 	printProposal(os.Stderr, res.Eval, res.Proposal, res.EvalErr, res.ProposalErr)
 	r := Stdin()
-	ans, err := Prompt(r, "[a]ccept / [e]dit / [r]eject / [n]eeds-review: ")
-	if err != nil {
-		return true, err
-	}
-	switch strings.ToLower(strings.TrimSpace(ans)) {
-	case "a", "accept", "":
-		if res.ProposalErr == nil {
-			applyProposal(t, res.Proposal)
-		}
-		if res.EvalErr == nil {
-			t.Status = mapAutoevalStatus(res.Eval.Status)
-		} else {
-			t.Status = model.StatusNeedsReview
-		}
-		embedAndStore(ctx, c, l, *t)
-	case "e", "edit":
-		base := res.Proposal
-		if res.ProposalErr != nil {
-			base = llm.InduceProposal{}
-		}
-		edited, err := editProposal(base)
+	for {
+		ans, err := Prompt(r, "[a]ccept / [e]dit / [r]eject / [n]eeds-review: ")
 		if err != nil {
 			return true, err
 		}
-		applyProposal(t, edited)
-		if res.EvalErr == nil {
-			t.Status = mapAutoevalStatus(res.Eval.Status)
-		} else {
+		switch strings.ToLower(strings.TrimSpace(ans)) {
+		case "a", "accept", "":
+			if res.ProposalErr == nil {
+				applyProposal(t, res.Proposal)
+			}
+			if res.EvalErr == nil {
+				t.Status = mapAutoevalStatus(res.Eval.Status)
+			} else {
+				t.Status = model.StatusNeedsReview
+			}
+			embedAndStore(ctx, c, l, *t)
+			return true, nil
+		case "e", "edit":
+			base := res.Proposal
+			if res.ProposalErr != nil {
+				base = llm.InduceProposal{}
+			}
+			edited, err := editProposal(base)
+			if err != nil {
+				return true, err
+			}
+			applyProposal(t, edited)
+			if res.EvalErr == nil {
+				t.Status = mapAutoevalStatus(res.Eval.Status)
+			} else {
+				t.Status = model.StatusNeedsReview
+			}
+			embedAndStore(ctx, c, l, *t)
+			return true, nil
+		case "r", "reject":
+			// keep task fields as-is; do NOT change status from autoeval, leave as needs_review
+			// per spec: still set EndedAt + clear current, do not save trajectory-derived fields.
 			t.Status = model.StatusNeedsReview
-		}
-		embedAndStore(ctx, c, l, *t)
-	case "r", "reject":
-		// keep task fields as-is; do NOT change status from autoeval, leave as needs_review
-		// per spec: still set EndedAt + clear current, do not save trajectory-derived fields.
-		t.Status = model.StatusNeedsReview
-	case "n", "needs-review", "needs_review":
-		t.Status = model.StatusNeedsReview
-	default:
-		// treat unknown as accept
-		if res.ProposalErr == nil {
-			applyProposal(t, res.Proposal)
-		}
-		if res.EvalErr == nil {
-			t.Status = mapAutoevalStatus(res.Eval.Status)
-		} else {
+			return true, nil
+		case "n", "needs-review", "needs_review":
 			t.Status = model.StatusNeedsReview
+			return true, nil
+		default:
+			fmt.Fprintf(os.Stderr, "Unrecognised input %q. Please enter a, e, r, or n.\n", ans)
+			// loop and re-prompt
 		}
-		embedAndStore(ctx, c, l, *t)
 	}
-	return true, nil
 }
 
 func manualFinishPrompt(t *model.Task) error {

@@ -3,11 +3,28 @@ package cli
 import (
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/nhdms/project-journal/internal/model"
 	"github.com/nhdms/project-journal/internal/store"
 	"github.com/spf13/cobra"
 )
+
+const logFieldMaxBytes = 64 * 1024 // 64 KB hard cap per text field
+
+// capLogField truncates s to at most logFieldMaxBytes bytes, backing up to a
+// valid UTF-8 rune boundary so no multi-byte sequence is split.
+func capLogField(s string) string {
+	if len(s) <= logFieldMaxBytes {
+		return s
+	}
+	cut := s[:logFieldMaxBytes]
+	// Back up until we're at a rune start to avoid broken sequences.
+	for len(cut) > 0 && !utf8.RuneStart(cut[len(cut)-1]) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut + "…[truncated]"
+}
 
 // NewLogCmd creates `pj log`.
 func NewLogCmd() *cobra.Command {
@@ -52,9 +69,9 @@ func NewLogCmd() *cobra.Command {
 				Timestamp:     time.Now().UTC(),
 				Type:          eventType,
 				Tool:          tool,
-				Content:       content,
-				InputSummary:  inputSummary,
-				OutputSummary: outputSummary,
+				Content:       capLogField(content),
+				InputSummary:  capLogField(inputSummary),
+				OutputSummary: capLogField(outputSummary),
 			}
 			return store.AppendTrajectory(l, id, ev)
 		},

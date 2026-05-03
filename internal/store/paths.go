@@ -258,7 +258,9 @@ func writeMarker(path, key string) error {
 		return err
 	}
 	data = append(data, '\n')
-	return WriteFileAtomic(path, data, 0o644)
+	// 0o600: the marker file contains the journal key (a path component);
+	// readable only by the owner to avoid leaking project structure.
+	return WriteFileAtomic(path, data, 0o600)
 }
 
 // scaffoldDataDir creates a fresh data directory with empty jsonl files and

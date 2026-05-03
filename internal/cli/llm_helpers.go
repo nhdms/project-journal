@@ -76,16 +76,16 @@ func inlineList(items []string) string {
 	if len(items) == 0 {
 		return " (none)"
 	}
-	const cap = 3
+	const previewMax = 3
 	var preview []string
-	if len(items) > cap {
-		preview = items[:cap]
+	if len(items) > previewMax {
+		preview = items[:previewMax]
 	} else {
 		preview = items
 	}
 	out := " " + strings.Join(preview, "; ")
-	if len(items) > cap {
-		out += fmt.Sprintf("; …(+%d more)", len(items)-cap)
+	if len(items) > previewMax {
+		out += fmt.Sprintf("; …(+%d more)", len(items)-previewMax)
 	}
 	return out
 }
