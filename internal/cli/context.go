@@ -232,55 +232,128 @@ func selectRelevantTasks(l store.Layout, t model.Task, tasks []model.Task) []mod
 	return out
 }
 
+// poolStatuses is the set of task statuses considered for context briefings
+// — finished work that has something to teach the next task. Used both to
+// build the in-memory pool and to constrain SQL similarity searches.
+var poolStatuses = []string{
+	model.StatusCompleted,
+	model.StatusPartial,
+	model.StatusBlocked,
+	model.StatusNeedsReview,
+}
+
 // computeEmbeddingScores returns cosine(query, candidate) keyed by task ID.
 // Returns an empty map if embeddings or the OpenAI client are unavailable —
 // callers then degrade to heuristic-only ranking.
+//
+// When the DuckDB derived index is compiled in (build tag pj_duckdb) and
+// holds embeddings, the similarity scan is pushed into SQL — both faster
+// (no need to materialize every cached vector into Go memory) and HNSW-
+// ready. Otherwise the function falls back to the in-memory loop over
+// store.LoadEmbeddings.
 func computeEmbeddingScores(l store.Layout, t model.Task, pool []model.Task) map[string]float64 {
-	out := map[string]float64{}
+	qvec, ok := getQueryVector(l, t)
+	if !ok {
+		return map[string]float64{}
+	}
+
+	// Prefer index-backed search when available.
+	if store.IndexEnabled() {
+		if scores := indexSimilarityScores(l, qvec, pool); scores != nil {
+			return scores
+		}
+	}
+	return jsonlSimilarityScores(l, qvec, pool)
+}
+
+// getQueryVector returns the embedding vector for task t, either by reusing
+// the cached embedding (privacy-gated path) or by calling the OpenAI API
+// when allowed. Returns ok=false when no usable vector can be produced.
+func getQueryVector(l store.Layout, t model.Task) ([]float32, bool) {
 	cached, err := store.LoadEmbeddings(l)
 	if err != nil || len(cached) == 0 {
-		return out
+		// No cached embeddings means we can't even fall back if a fresh
+		// embed fails — but if LLM is allowed we still try.
 	}
-	// Only attempt live embedding if LLM is allowed (privacy gate + API key).
+
 	cfg, _ := store.LoadConfig(l)
 	if !llm.HasAPIKey() || !llm.IsLLMAllowed(cfg.LLMEnabled) {
-		// We can still compute cosines among cached vectors only if the query
-		// task itself is cached. Try that first.
 		if rec, ok := store.FindEmbedding(cached, t.ID); ok {
-			for _, x := range pool {
-				if er, ok := store.FindEmbedding(cached, x.ID); ok {
-					out[x.ID] = llm.CosineSimilarity(rec.Embedding, er.Embedding)
-				}
-			}
+			return rec.Embedding, true
 		}
-		return out
+		return nil, false
 	}
 
 	c, err := llm.NewClient()
 	if err != nil {
-		return out
+		if rec, ok := store.FindEmbedding(cached, t.ID); ok {
+			return rec.Embedding, true
+		}
+		return nil, false
 	}
+
 	queryText := t.Title
 	if t.UserIntent != "" {
 		queryText += "\n" + t.UserIntent
 	}
 	if strings.TrimSpace(queryText) == "" {
-		return out
+		return nil, false
 	}
-	// Use a tight 5s timeout for the context rendering path; this is on the
-	// critical path of session-start and must not stall Claude Code.
+	// Tight timeout: this runs on session-start, which must not stall CC.
 	const contextEmbedTimeout = 5 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), contextEmbedTimeout)
 	defer cancel()
 	qvec, err := c.Embed(ctx, queryText)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: query embedding failed: %v\n", err)
-		// fall back to using cached query embedding if any
 		if rec, ok := store.FindEmbedding(cached, t.ID); ok {
-			qvec = rec.Embedding
-		} else {
-			return out
+			return rec.Embedding, true
 		}
+		return nil, false
+	}
+	return qvec, true
+}
+
+// indexSimilarityScores asks the DuckDB index for the top-K most similar
+// tasks (K = pool size + headroom) and intersects the result with the
+// caller's pool. Returns nil if the index is empty or unreachable so the
+// caller can fall back to JSONL scanning. The pool intersection is
+// preserved because the caller may have applied filters (e.g. excluding
+// the query task itself) that the index does not know about.
+func indexSimilarityScores(l store.Layout, qvec []float32, pool []model.Task) map[string]float64 {
+	if len(pool) == 0 {
+		return map[string]float64{}
+	}
+	// Ask for slightly more than pool size so candidates the caller filtered
+	// out (e.g. the query task itself, or status changes since last
+	// embedding) don't push real matches off the result. +5 is empirical:
+	// the typical filter drops 1-2 rows.
+	k := len(pool) + 5
+	results, err := store.SearchSimilar(l, qvec, k, poolStatuses)
+	if err != nil || len(results) == 0 {
+		return nil
+	}
+	poolSet := make(map[string]bool, len(pool))
+	for _, x := range pool {
+		poolSet[x.ID] = true
+	}
+	out := make(map[string]float64, len(results))
+	for _, r := range results {
+		if poolSet[r.TaskID] {
+			out[r.TaskID] = r.Similarity
+		}
+	}
+	return out
+}
+
+// jsonlSimilarityScores is the original in-memory cosine scan, retained as
+// a fallback for builds without DuckDB and for cases where the index is
+// unavailable (lock contention, schema mismatch).
+func jsonlSimilarityScores(l store.Layout, qvec []float32, pool []model.Task) map[string]float64 {
+	out := map[string]float64{}
+	cached, err := store.LoadEmbeddings(l)
+	if err != nil || len(cached) == 0 {
+		return out
 	}
 	for _, x := range pool {
 		if er, ok := store.FindEmbedding(cached, x.ID); ok {
