@@ -93,11 +93,13 @@ var (
 	registry = map[string]Index{}
 )
 
-// For returns the index for the journal data directory dir. The first call
-// opens (and possibly rebuilds) the index; subsequent calls return the
-// cached instance. If opening fails for any reason, a noop index is
-// returned and an error is reported via the returned error — callers may
-// log it but should not treat it as fatal.
+// For returns the index for the journal data directory dir. The first
+// successful call opens the index; subsequent calls return the cached
+// instance. If opening fails (typically because another process holds the
+// DuckDB lock), a noop index is returned along with the error and NO
+// caching is performed — subsequent calls will retry, so mirroring
+// resumes once the contending process releases the lock. Callers should
+// log the error but not treat it as fatal: JSONL is the source of truth.
 func For(dir string) (Index, error) {
 	mu.Lock()
 	defer mu.Unlock()
@@ -106,10 +108,9 @@ func For(dir string) (Index, error) {
 	}
 	idx, err := open(dir)
 	if err != nil {
-		// Cache a noop so we don't retry on every call.
-		noop := newNoop()
-		registry[dir] = noop
-		return noop, err
+		// Do NOT cache: contention is transient. Returning an uncached
+		// noop lets the next call retry once the holder releases.
+		return newNoop(), err
 	}
 	registry[dir] = idx
 	return idx, nil
