@@ -3,7 +3,10 @@
 package index
 
 import (
+	"fmt"
 	"path/filepath"
+	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -250,4 +253,187 @@ func openTestFile(path string) (struct{}, error) {
 		return struct{}{}, err
 	}
 	return struct{}{}, nil
+}
+
+// scanStringList converts the value returned by go-duckdb v1 for VARCHAR[]
+// columns into a []string. The driver returns []interface{} (each element a
+// string); this helper does the conversion and is used by array round-trip tests.
+func scanStringList(v any) ([]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	iface, ok := v.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("expected []interface{}, got %T", v)
+	}
+	out := make([]string, len(iface))
+	for i, el := range iface {
+		s, ok := el.(string)
+		if !ok {
+			return nil, fmt.Errorf("element %d: expected string, got %T", i, el)
+		}
+		out[i] = s
+	}
+	return out, nil
+}
+
+// TestDuckDB_ArrayRoundTrip verifies that VARCHAR[] columns survive a
+// write-read cycle with exact order preserved. This catches driver-level list
+// serialization bugs.
+func TestDuckDB_ArrayRoundTrip(t *testing.T) {
+	idx := openTestIndex(t)
+	d := idx.(*duckdbIndex)
+
+	task := model.Task{
+		ID:           "array-rt",
+		Title:        "array round-trip",
+		Status:       model.StatusInProgress,
+		Tags:         []string{"z", "a", "m"},
+		DependsOn:    []string{"dep-3", "dep-1", "dep-2"},
+		FilesTouched: []string{"cmd/main.go", "internal/foo/bar.go"},
+		KeyDecisions: []string{"use DuckDB", "write tests first", "avoid CGO in noop"},
+	}
+	if err := idx.UpsertTask(task); err != nil {
+		t.Fatalf("UpsertTask: %v", err)
+	}
+
+	rows, err := d.db.Query(
+		`SELECT tags, depends_on, files_touched, key_decisions FROM tasks WHERE id = ?`,
+		task.ID,
+	)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("expected one row, got none")
+	}
+
+	// go-duckdb v1 returns []interface{} for VARCHAR[] columns when scanned
+	// into an any destination. Use scanStringList to convert.
+	var (
+		rawTags         any
+		rawDependsOn    any
+		rawFilesTouched any
+		rawKeyDecisions any
+	)
+	if err := rows.Scan(&rawTags, &rawDependsOn, &rawFilesTouched, &rawKeyDecisions); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
+	}
+
+	gotTags, err := scanStringList(rawTags)
+	if err != nil {
+		t.Fatalf("scanStringList(tags): %v", err)
+	}
+	gotDependsOn, err := scanStringList(rawDependsOn)
+	if err != nil {
+		t.Fatalf("scanStringList(depends_on): %v", err)
+	}
+	gotFilesTouched, err := scanStringList(rawFilesTouched)
+	if err != nil {
+		t.Fatalf("scanStringList(files_touched): %v", err)
+	}
+	gotKeyDecisions, err := scanStringList(rawKeyDecisions)
+	if err != nil {
+		t.Fatalf("scanStringList(key_decisions): %v", err)
+	}
+
+	if !reflect.DeepEqual(gotTags, task.Tags) {
+		t.Errorf("tags: got %v want %v", gotTags, task.Tags)
+	}
+	if !reflect.DeepEqual(gotDependsOn, task.DependsOn) {
+		t.Errorf("depends_on: got %v want %v", gotDependsOn, task.DependsOn)
+	}
+	if !reflect.DeepEqual(gotFilesTouched, task.FilesTouched) {
+		t.Errorf("files_touched: got %v want %v", gotFilesTouched, task.FilesTouched)
+	}
+	if !reflect.DeepEqual(gotKeyDecisions, task.KeyDecisions) {
+		t.Errorf("key_decisions: got %v want %v", gotKeyDecisions, task.KeyDecisions)
+	}
+}
+
+// TestDuckDB_NullEmbedding verifies that a task inserted without an embedding
+// row is excluded from SearchSimilar results without error. Orphan task rows
+// (tasks with no corresponding embeddings row) must not cause panics or SQL
+// errors — they are silently excluded from similarity search.
+func TestDuckDB_NullEmbedding(t *testing.T) {
+	idx := openTestIndex(t)
+
+	task := model.Task{
+		ID:     "no-emb",
+		Title:  "task without embedding",
+		Status: model.StatusTodo,
+	}
+	if err := idx.UpsertTask(task); err != nil {
+		t.Fatalf("UpsertTask: %v", err)
+	}
+
+	// Confirm no embedding row was inserted.
+	n, err := idx.TableCount("embeddings")
+	if err != nil {
+		t.Fatalf("TableCount(embeddings): %v", err)
+	}
+	if n != 0 {
+		t.Errorf("embeddings count: got %d want 0", n)
+	}
+
+	// SearchSimilar must return empty result, no error.
+	got, err := idx.SearchSimilar([]float32{1, 0, 0}, 5, nil)
+	if err != nil {
+		t.Fatalf("SearchSimilar: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("SearchSimilar: got %v want empty (orphan task excluded)", got)
+	}
+}
+
+// TestDuckDB_ConcurrentUpserts spawns 50 goroutines each upserting the same
+// task ID with different titles. After all complete there must be exactly one
+// row in the tasks table. The idx.mu mutex must serialize writes correctly;
+// run with -race to detect any data races.
+func TestDuckDB_ConcurrentUpserts(t *testing.T) {
+	idx := openTestIndex(t)
+
+	const workers = 50
+	var wg sync.WaitGroup
+	errs := make([]error, workers)
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			errs[n] = idx.UpsertTask(model.Task{
+				ID:     "concurrent-id",
+				Title:  fmt.Sprintf("title from goroutine %d", n),
+				Status: model.StatusInProgress,
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: UpsertTask error: %v", i, err)
+		}
+	}
+
+	n, err := idx.TableCount("tasks")
+	if err != nil {
+		t.Fatalf("TableCount(tasks): %v", err)
+	}
+	if n != 1 {
+		t.Errorf("tasks count after concurrent upserts: got %d want 1", n)
+	}
+
+	// Status must be one of the written values (last-writer-wins).
+	status, err := idx.GetTaskStatus("concurrent-id")
+	if err != nil {
+		t.Fatalf("GetTaskStatus: %v", err)
+	}
+	if status != model.StatusInProgress {
+		t.Errorf("status: got %q want %q", status, model.StatusInProgress)
+	}
 }
