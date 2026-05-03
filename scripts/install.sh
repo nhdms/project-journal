@@ -163,11 +163,30 @@ install_binary() {
     exit 1
   fi
 
-  if curl -fsSL "${URL}.sha256" -o "${TMP}/${ASSET}.sha256" 2>/dev/null; then
-    echo "==> Verifying checksum..."
-    (cd "${TMP}" && sha256sum -c "${ASSET}.sha256" >/dev/null) \
-      || { echo "ERROR: checksum mismatch"; exit 1; }
+  # Detect the sha256 checker available on this platform.
+  # sha256sum is standard on Linux; shasum ships with macOS.
+  if command -v sha256sum >/dev/null 2>&1; then
+    SHA256_CHECK="sha256sum -c"
+  elif command -v shasum >/dev/null 2>&1; then
+    SHA256_CHECK="shasum -a 256 -c"
+  else
+    echo "ERROR: no sha256 checker found (need sha256sum or shasum). Aborting."
+    exit 1
   fi
+
+  echo "==> Downloading checksum file..."
+  if ! curl -fsSL "${URL}.sha256" -o "${TMP}/${ASSET}.sha256"; then
+    echo "ERROR: checksum file download failed (${URL}.sha256)."
+    echo "       Refusing to install without verified checksum."
+    exit 1
+  fi
+
+  echo "==> Verifying checksum..."
+  if ! (cd "${TMP}" && ${SHA256_CHECK} "${ASSET}.sha256" >/dev/null 2>&1); then
+    echo "ERROR: checksum mismatch. Downloaded binary may be corrupt or tampered."
+    exit 1
+  fi
+  echo "==> Checksum OK ✓"
 
   echo "==> Extracting..."
   tar -xzf "${TMP}/${ASSET}" -C "${TMP}"
