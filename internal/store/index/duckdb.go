@@ -179,16 +179,35 @@ func firstLine(s string) string {
 }
 
 // UpsertTask mirrors a task into the tasks table.
+// DuckDB does not implement INSERT OR REPLACE as an update — it inserts
+// silently and ignores conflicts. Use INSERT ... ON CONFLICT DO UPDATE SET
+// instead to achieve true upsert semantics.
 func (idx *duckdbIndex) UpsertTask(t model.Task) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
 	const q = `
-		INSERT OR REPLACE INTO tasks (
+		INSERT INTO tasks (
 			id, phase_id, title, user_intent, summary, status, session_id,
 			tags, depends_on, files_touched, key_decisions, todos_left,
 			blockers_resolved, interfaces_exposed, started_at, ended_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET
+			phase_id           = EXCLUDED.phase_id,
+			title              = EXCLUDED.title,
+			user_intent        = EXCLUDED.user_intent,
+			summary            = EXCLUDED.summary,
+			status             = EXCLUDED.status,
+			session_id         = EXCLUDED.session_id,
+			tags               = EXCLUDED.tags,
+			depends_on         = EXCLUDED.depends_on,
+			files_touched      = EXCLUDED.files_touched,
+			key_decisions      = EXCLUDED.key_decisions,
+			todos_left         = EXCLUDED.todos_left,
+			blockers_resolved  = EXCLUDED.blockers_resolved,
+			interfaces_exposed = EXCLUDED.interfaces_exposed,
+			started_at         = EXCLUDED.started_at,
+			ended_at           = EXCLUDED.ended_at`
 	_, err := idx.db.Exec(q,
 		t.ID,
 		nilIfEmpty(t.PhaseID),
@@ -218,7 +237,8 @@ func (idx *duckdbIndex) UpsertPhase(p model.Phase) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	_, err := idx.db.Exec(
-		`INSERT OR REPLACE INTO phases (id, title, created_at) VALUES (?, ?, ?)`,
+		`INSERT INTO phases (id, title, created_at) VALUES (?, ?, ?)
+		 ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, created_at = EXCLUDED.created_at`,
 		p.ID, p.Title, p.CreatedAt,
 	)
 	if err != nil {
@@ -232,7 +252,8 @@ func (idx *duckdbIndex) UpsertEmbedding(rec EmbeddingRecord) error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	_, err := idx.db.Exec(
-		`INSERT OR REPLACE INTO embeddings (task_id, text, embedding, updated_at) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO embeddings (task_id, text, embedding, updated_at) VALUES (?, ?, ?, ?)
+		 ON CONFLICT (task_id) DO UPDATE SET text = EXCLUDED.text, embedding = EXCLUDED.embedding, updated_at = EXCLUDED.updated_at`,
 		rec.TaskID, rec.Text, float32List(rec.Embedding), rec.UpdatedAt,
 	)
 	if err != nil {
