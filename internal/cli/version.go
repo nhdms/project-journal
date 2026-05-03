@@ -7,7 +7,7 @@ import (
 )
 
 // Version is the pj CLI version. Keep in sync with plugin.json.
-const Version = "0.4.2"
+const Version = "0.5.0"
 
 // NewVersionCmd creates `pj version`.
 func NewVersionCmd() *cobra.Command {
