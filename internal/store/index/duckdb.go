@@ -69,7 +69,9 @@ func (noopFallback) SearchSimilar([]float32, int, []string) ([]SimilarTask, erro
 func (noopFallback) Rebuild([]model.Task, []model.Phase, []EmbeddingRecord) error {
 	return nil
 }
-func (noopFallback) Close() error { return nil }
+func (noopFallback) Close() error                           { return nil }
+func (noopFallback) TableCount(string) (int, error)         { return 0, nil }
+func (noopFallback) GetTaskStatus(string) (string, error)   { return "", nil }
 
 // bootstrap creates the schema if missing or wipes+recreates on version
 // mismatch. The schema_meta table holds a single row recording the on-disk
@@ -391,6 +393,49 @@ func (idx *duckdbIndex) Rebuild(tasks []model.Task, phases []model.Phase, embs [
 		return fmt.Errorf("duckdb: commit: %w", err)
 	}
 	return nil
+}
+
+// TableCount returns the row count for the whitelisted table name. Returns an
+// error for any name not in the allowed set.
+func (idx *duckdbIndex) TableCount(table string) (int, error) {
+	var q string
+	switch table {
+	case "tasks":
+		q = `SELECT count(*) FROM tasks`
+	case "phases":
+		q = `SELECT count(*) FROM phases`
+	case "embeddings":
+		q = `SELECT count(*) FROM embeddings`
+	case "trajectory":
+		q = `SELECT count(*) FROM trajectory`
+	case "schema_meta":
+		q = `SELECT count(*) FROM schema_meta`
+	default:
+		return 0, fmt.Errorf("TableCount: table %q not allowed", table)
+	}
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	var n int
+	if err := idx.db.QueryRow(q).Scan(&n); err != nil {
+		return 0, fmt.Errorf("duckdb: TableCount(%s): %w", table, err)
+	}
+	return n, nil
+}
+
+// GetTaskStatus returns the status of the task with id. Returns ("", nil) when
+// no row is found.
+func (idx *duckdbIndex) GetTaskStatus(id string) (string, error) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	var status string
+	err := idx.db.QueryRow(`SELECT status FROM tasks WHERE id = ?`, id).Scan(&status)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("duckdb: GetTaskStatus(%s): %w", id, err)
+	}
+	return status, nil
 }
 
 // Close closes the underlying DB handle.

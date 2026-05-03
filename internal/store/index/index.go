@@ -75,6 +75,17 @@ type Index interface {
 
 	// Close releases any resources (open DB handles, file locks).
 	Close() error
+
+	// TableCount returns the number of rows in the named table. Allowed names:
+	// "tasks", "phases", "embeddings", "trajectory", "schema_meta". Returns an
+	// error for any other name. Intended for tests; the noop implementation
+	// always returns 0, nil.
+	TableCount(table string) (int, error)
+
+	// GetTaskStatus returns the status column for the task with the given id.
+	// Returns ("", nil) if the task does not exist. Intended for tests; the
+	// noop implementation always returns "", nil.
+	GetTaskStatus(id string) (string, error)
 }
 
 var (

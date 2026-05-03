@@ -30,4 +30,6 @@ func (noopIndex) SearchSimilar([]float32, int, []string) ([]SimilarTask, error) 
 func (noopIndex) Rebuild([]model.Task, []model.Phase, []EmbeddingRecord) error {
 	return nil
 }
-func (noopIndex) Close() error { return nil }
+func (noopIndex) Close() error                           { return nil }
+func (noopIndex) TableCount(string) (int, error)         { return 0, nil }
+func (noopIndex) GetTaskStatus(string) (string, error)   { return "", nil }
