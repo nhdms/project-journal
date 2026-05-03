@@ -7,7 +7,10 @@ import (
 )
 
 // Version is the pj CLI version. Keep in sync with plugin.json.
-const Version = "0.5.0"
+// The default value is the fallback used when the binary is built without
+// -ldflags="-X github.com/nhdms/project-journal/internal/cli.Version=<tag>".
+// Release binaries override this via ldflags in the CI build.
+var Version = "0.5.0"
 
 // NewVersionCmd creates `pj version`.
 func NewVersionCmd() *cobra.Command {

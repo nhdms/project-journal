@@ -11,18 +11,22 @@ permissions:
 jobs:
   build:
     name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
           - goos: linux
             goarch: arm64
+            runner: ubuntu-24.04-arm
           - goos: darwin
             goarch: amd64
+            runner: macos-13
           - goos: darwin
             goarch: arm64
+            runner: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -30,15 +34,19 @@ jobs:
         with:
           go-version: '1.22'
 
+      - name: Install C toolchain (Linux)
+        if: matrix.goos == 'linux'
+        run: sudo apt-get install -y gcc
+
       - name: Build
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: '0'
+          CGO_ENABLED: '1'
         run: |
           mkdir -p dist
-          OUT="pj-${GOOS}-${GOARCH}"
-          go build -trimpath -ldflags="-s -w -X main.version=${GITHUB_REF_NAME}" -o "dist/${OUT}" ./cmd/pj
+          OUT="pj-${{ matrix.goos }}-${{ matrix.goarch }}"
+          CGO_ENABLED=1 go build -tags pj_duckdb -trimpath \
+            -ldflags="-s -w -X github.com/nhdms/project-journal/internal/cli.Version=${GITHUB_REF_NAME}" \
+            -o "dist/${OUT}" ./cmd/pj
           (cd dist && tar -czf "${OUT}.tar.gz" "${OUT}" && sha256sum "${OUT}.tar.gz" > "${OUT}.tar.gz.sha256")
 
       - name: Upload artifact
