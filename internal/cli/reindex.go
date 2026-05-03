@@ -19,14 +19,34 @@ import (
 func NewReindexCmd() *cobra.Command {
 	var force bool
 	var indexOnly bool
+	var check bool
 	cmd := &cobra.Command{
 		Use:   "reindex",
-		Short: "(Re)build embeddings for finished tasks; --index-only rebuilds derived index from JSONL",
+		Short: "(Re)build embeddings for finished tasks; --index-only rebuilds derived index from JSONL; --check reports drift",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l, err := resolveLayout()
 			if err != nil {
 				return err
+			}
+			if check {
+				if !store.IndexEnabled() {
+					fmt.Println("Derived index: disabled (build without pj_duckdb tag).")
+					return nil
+				}
+				r, err := store.IndexDrift(l)
+				if err != nil {
+					return fmt.Errorf("drift: %w", err)
+				}
+				fmt.Printf("Tasks      : JSONL=%d  Index=%d\n", r.TasksJSONL, r.TasksIndex)
+				fmt.Printf("Phases     : JSONL=%d  Index=%d\n", r.PhasesJSONL, r.PhasesIndex)
+				fmt.Printf("Embeddings : JSONL=%d  Index=%d\n", r.EmbeddingsJSONL, r.EmbeddingsIndex)
+				if r.Drift {
+					fmt.Println("\nDrift detected. Run `pj reindex --index-only` to rebuild the derived index from JSONL.")
+					os.Exit(3) // distinct exit code so scripts can detect drift
+				}
+				fmt.Println("\nNo drift.")
+				return nil
 			}
 			if indexOnly {
 				if !store.IndexEnabled() {
@@ -115,5 +135,6 @@ func NewReindexCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Re-embed even if a cached embedding exists with matching text")
 	cmd.Flags().BoolVar(&indexOnly, "index-only", false, "Rebuild the derived index from JSONL without calling the embedding API")
+	cmd.Flags().BoolVar(&check, "check", false, "Report row-count drift between JSONL source-of-truth and derived index (exit 3 if drift)")
 	return cmd
 }

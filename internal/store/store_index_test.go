@@ -254,3 +254,90 @@ func TestStoreRebuildIndexFromJSONL(t *testing.T) {
 		t.Errorf("embeddings = %d, want 2", n)
 	}
 }
+
+// TestIndexDrift_Clean: synchronous AppendTask path keeps JSONL and index
+// in lockstep, so drift should be false immediately after the call.
+func TestIndexDrift_Clean(t *testing.T) {
+	l := newTestLayout(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	if err := store.AppendTask(l, model.Task{
+		ID: "P1.T1", Title: "t", Status: model.StatusInProgress, StartedAt: &now,
+	}); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	r, err := store.IndexDrift(l)
+	if err != nil {
+		t.Fatalf("drift: %v", err)
+	}
+	if r.Drift {
+		t.Errorf("expected no drift, got %+v", r)
+	}
+	if r.TasksJSONL != 1 || r.TasksIndex != 1 {
+		t.Errorf("counts: %+v", r)
+	}
+}
+
+// TestIndexDrift_DetectsJSONLAhead: simulate the contention scenario by
+// writing a task line directly to JSONL (bypassing AppendTask's mirror).
+// Drift should be detected.
+func TestIndexDrift_DetectsJSONLAhead(t *testing.T) {
+	l := newTestLayout(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// Normal append: both layers see it.
+	if err := store.AppendTask(l, model.Task{
+		ID: "P1.T1", Title: "first", Status: model.StatusInProgress, StartedAt: &now,
+	}); err != nil {
+		t.Fatalf("append1: %v", err)
+	}
+
+	// Simulate a mirror that didn't fire: append directly to JSONL.
+	if err := store.AppendJSONL(l.TasksJSONL, model.Task{
+		ID: "P1.T2", Title: "second", Status: model.StatusInProgress, StartedAt: &now,
+	}); err != nil {
+		t.Fatalf("appendjsonl: %v", err)
+	}
+
+	r, err := store.IndexDrift(l)
+	if err != nil {
+		t.Fatalf("drift: %v", err)
+	}
+	if !r.Drift {
+		t.Errorf("expected drift, got %+v", r)
+	}
+	if r.TasksJSONL != 2 || r.TasksIndex != 1 {
+		t.Errorf("counts: got tasks JSONL=%d Index=%d, want 2/1", r.TasksJSONL, r.TasksIndex)
+	}
+}
+
+// TestIndexDrift_RebuildHeals: after RebuildIndex, drift returns to false.
+func TestIndexDrift_RebuildHeals(t *testing.T) {
+	l := newTestLayout(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	if err := store.AppendJSONL(l.TasksJSONL, model.Task{
+		ID: "P1.T1", Title: "raw", Status: model.StatusInProgress, StartedAt: &now,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	r, err := store.IndexDrift(l)
+	if err != nil {
+		t.Fatalf("drift1: %v", err)
+	}
+	if !r.Drift {
+		t.Fatalf("precondition: expected drift, got %+v", r)
+	}
+
+	if err := store.RebuildIndex(l); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+
+	r, err = store.IndexDrift(l)
+	if err != nil {
+		t.Fatalf("drift2: %v", err)
+	}
+	if r.Drift {
+		t.Errorf("expected no drift after rebuild, got %+v", r)
+	}
+}

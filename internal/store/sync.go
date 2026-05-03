@@ -95,3 +95,69 @@ func SearchSimilar(l Layout, query []float32, topK int, allowedStatuses []string
 	}
 	return idx.SearchSimilar(query, topK, allowedStatuses)
 }
+
+// IndexDrift reports the row-count delta between the JSONL source of
+// truth and the derived index. Drift is true when any of tasks/phases/
+// embeddings have a mismatched count. Callers can use this to decide
+// whether to auto-rebuild on startup.
+//
+// Intentionally simple: row counts catch the common drift causes
+// (mirror skipped due to lock contention, schema-version wipe followed
+// by no rebuild, JSONL edited externally). It does not detect content
+// drift (same count, different bytes) — that is rare and requires a
+// `pj reindex --full` to repair anyway.
+//
+// Returns Err == nil and Drift == false when no real index is compiled
+// in, since the noop has nothing to drift from.
+type IndexDriftReport struct {
+	TasksJSONL      int
+	TasksIndex      int
+	PhasesJSONL     int
+	PhasesIndex     int
+	EmbeddingsJSONL int
+	EmbeddingsIndex int
+	Drift           bool
+}
+
+func IndexDrift(l Layout) (IndexDriftReport, error) {
+	r := IndexDriftReport{}
+	if !index.Enabled() {
+		return r, nil
+	}
+	tasks, err := LoadTasks(l)
+	if err != nil {
+		return r, err
+	}
+	phases, err := LoadPhases(l)
+	if err != nil {
+		return r, err
+	}
+	embs, err := LoadEmbeddings(l)
+	if err != nil {
+		return r, err
+	}
+	idx, err := index.For(l.Dir)
+	if err != nil {
+		// Index unavailable (e.g. another process holds the lock). Treat
+		// as drift = false: we can't measure, and the caller's mirror
+		// writes are also being skipped, so the on-disk state is
+		// consistent with itself.
+		return r, nil
+	}
+	r.TasksJSONL = len(tasks)
+	r.PhasesJSONL = len(phases)
+	r.EmbeddingsJSONL = len(embs)
+	if r.TasksIndex, err = idx.TableCount("tasks"); err != nil {
+		return r, err
+	}
+	if r.PhasesIndex, err = idx.TableCount("phases"); err != nil {
+		return r, err
+	}
+	if r.EmbeddingsIndex, err = idx.TableCount("embeddings"); err != nil {
+		return r, err
+	}
+	r.Drift = r.TasksJSONL != r.TasksIndex ||
+		r.PhasesJSONL != r.PhasesIndex ||
+		r.EmbeddingsJSONL != r.EmbeddingsIndex
+	return r, nil
+}
