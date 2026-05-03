@@ -23,7 +23,9 @@ emit_context() {
 }
 
 if [ -n "$PJ_TASK" ]; then
-  BRIEFING=$(pj context --for "$PJ_TASK" 2>/dev/null || true)
+  # PJ_NO_LLM=1: disable live embedding queries on the session-start critical
+  # path. Cached embeddings are still used for cosine ranking; no network call.
+  BRIEFING=$(PJ_NO_LLM=1 pj context --for "$PJ_TASK" 2>/dev/null || true)
   if [ -z "$BRIEFING" ]; then
     log_info "session-start: no briefing for task $PJ_TASK"
     exit 0

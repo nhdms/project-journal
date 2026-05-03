@@ -48,7 +48,7 @@ pj finish NHD-23                               # interactive summary
 pj tree
 ```
 
-With `OPENAI_API_KEY` set, `pj finish` auto-induces summary + autoeval status:
+With LLM features enabled (see [Privacy](#privacy)), `pj finish` auto-induces summary + autoeval status:
 
 ```sh
 export OPENAI_API_KEY="sk-proj-..."
@@ -111,7 +111,7 @@ All commands except `init` walk up from cwd to find `.project-journal/`. Pass `-
 | `pj context [--for <id>]` | Markdown briefing (deps + relevant past tasks via embeddings). |
 | `pj edit <id>` | Open task/phase in `$EDITOR`. |
 | `pj status` | Stats overview. |
-| `pj current [--quiet]` | Print active task ID. Exits 1 if none. |
+| `pj current [--quiet]` | Print active task ID. Exit 0=found, 1=none/uninitialized, 2=real error. |
 
 ### Status values
 
@@ -125,17 +125,43 @@ All commands except `init` walk up from cwd to find `.project-journal/`. Pass `-
 - ✨ Relevant past tasks (top 5, blended scoring: cosine + dep boost + same-phase + recency)
 - ⏭️ Coming next (sibling todos)
 
+## Privacy
+
+**LLM features are opt-in and disabled by default.**
+
+When `pj finish` or `pj context` runs, trajectory data (tool names, file paths, command output summaries) and task titles are sent to OpenAI **only** when all of the following are true:
+
+1. `OPENAI_API_KEY` is set in your environment, **and**
+2. `llm_enabled` is `true` in `.project-journal/config.json` (default: `false`), **and**
+3. The `PJ_NO_LLM=1` env var is **not** set.
+
+To opt in:
+
+```sh
+# Edit .project-journal/config.json and add:
+# "llm_enabled": true
+```
+
+To disable LLM for a single invocation (e.g. in scripts or hooks):
+
+```sh
+PJ_NO_LLM=1 pj context
+```
+
+The Claude Code plugin hooks set `PJ_NO_LLM=1` automatically for the `pj context` call during session start, so no live network call is made on the critical path.
+
 ## Configuration
 
 Environment variables (all optional except `OPENAI_API_KEY` for LLM features):
 
 | Var | Default | Purpose |
 |-----|---------|---------|
-| `OPENAI_API_KEY` | — | Required for LLM induce, autoeval, embeddings. |
+| `OPENAI_API_KEY` | — | Required for LLM features (also requires `llm_enabled=true` in config). |
 | `OPENAI_CHAT_MODEL` | `gpt-4o-mini` | Chat completion model. |
 | `OPENAI_EMBED_MODEL` | `text-embedding-3-small` | Embedding model. |
 | `OPENAI_TIMEOUT_SECONDS` | `60` | Per-call timeout. |
 | `OPENAI_BASE_URL` | OpenAI default | Override for proxies / Azure. |
+| `PJ_NO_LLM` | — | Set to `1` to disable all LLM calls regardless of config. |
 
 ## Storage notes
 
