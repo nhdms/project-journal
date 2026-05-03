@@ -35,6 +35,22 @@ go build -o pj ./cmd/pj
 sudo mv pj /usr/local/bin/   # or any dir on PATH
 ```
 
+### DuckDB index
+
+Release binaries (v0.6+) include DuckDB support by default, enabling the
+vector-similarity index used by `pj context` for fast relevant-task lookup.
+
+If you build from source and want DuckDB, pass the build tag explicitly
+(requires CGO and a C toolchain):
+
+```sh
+CGO_ENABLED=1 go build -tags pj_duckdb -o pj ./cmd/pj
+```
+
+If you install via `go install` or build without the tag, the binary falls
+back to the pure-Go cosine-similarity path — all commands work, just without
+the DuckDB index acceleration.
+
 ## Quick start
 
 ```sh
