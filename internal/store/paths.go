@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -46,8 +47,51 @@ func HomeBase() (string, error) {
 	return filepath.Join(home, ".project-journal"), nil
 }
 
+// CanonicalRoot returns the canonical project root for start. For a git
+// repository (including linked worktrees), this is the directory containing
+// the shared .git dir — identical for every worktree of the same repo, so
+// all worktrees resolve to the same journal data dir. For a non-git path,
+// returns filepath.Abs(start) unchanged.
+//
+// Detection uses `git rev-parse --path-format=absolute --git-common-dir`.
+// For a standard checkout the common dir is /path/to/repo/.git → canonical
+// root is /path/to/repo. For a linked worktree the common dir still points
+// at the main repo's .git, giving the same canonical root. For a separate
+// gitdir or bare repo the gitdir itself is used as the canonical reference
+// (still stable across worktrees).
+func CanonicalRoot(start string) (string, error) {
+	abs, err := filepath.Abs(start)
+	if err != nil {
+		return "", err
+	}
+	// Resolve symlinks so e.g. /var/... vs /private/var/... and other
+	// symlinked workspace paths derive the same key. Git already returns
+	// resolved paths, so this keeps both branches consistent.
+	if r, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = r
+	}
+	cmd := exec.Command("git", "-C", abs, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	cmd.Stderr = nil
+	out, err := cmd.Output()
+	if err != nil {
+		return abs, nil // not a git repo, or git unavailable: fall back to abs
+	}
+	gitDir := strings.TrimSpace(string(out))
+	if gitDir == "" {
+		return abs, nil
+	}
+	if filepath.Base(gitDir) == ".git" {
+		return filepath.Dir(gitDir), nil
+	}
+	// Bare repo or --separate-git-dir: use the gitdir itself as canonical.
+	return gitDir, nil
+}
+
 // DeriveKey returns a stable, human-readable key for the journal rooted at
 // absRoot. Format: <sanitized-basename>-<8-hex-chars-of-sha256(absRoot)>.
+//
+// Callers should pass the canonical root (see CanonicalRoot) so that all
+// linked git worktrees of the same repo derive the same key.
 func DeriveKey(absRoot string) string {
 	base := strings.ToLower(filepath.Base(absRoot))
 	var b strings.Builder
@@ -130,7 +174,9 @@ func LayoutFor(root string) (Layout, error) {
 }
 
 // FindRoot walks up from start looking for a .project-journal marker (file
-// or directory). Returns ("", false) if not found.
+// or directory). For git worktrees, also checks the canonical project root
+// (shared across all worktrees) so any worktree resolves to the same journal.
+// Returns ("", false) if not found.
 func FindRoot(start string) (string, bool) {
 	cur, err := filepath.Abs(start)
 	if err != nil {
@@ -142,10 +188,33 @@ func FindRoot(start string) (string, bool) {
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
-			return "", false
+			break
 		}
 		cur = parent
 	}
+	// Worktree fallback: marker may live in the canonical (main) checkout
+	// while the caller is invoked from a linked worktree on a different
+	// path. Check the canonical root and walk up from there too.
+	if canonical, err := CanonicalRoot(start); err == nil && canonical != "" {
+		startAbs, _ := filepath.Abs(start)
+		if r, err := filepath.EvalSymlinks(startAbs); err == nil {
+			startAbs = r
+		}
+		if canonical != startAbs {
+			cur := canonical
+			for {
+				if _, err := os.Lstat(filepath.Join(cur, MarkerName)); err == nil {
+					return cur, true
+				}
+				parent := filepath.Dir(cur)
+				if parent == cur {
+					break
+				}
+				cur = parent
+			}
+		}
+	}
+	return "", false
 }
 
 // Config is the on-disk schema for config.json.
@@ -188,10 +257,22 @@ func SaveConfig(l Layout, cfg Config) error {
 // are migrated to ~/.project-journal/<key>/ via os.Rename and the marker
 // file is written in its place. Returns true if the journal was newly
 // created or migrated, false if it was already present.
+//
+// For git worktrees, init redirects to the canonical project root so all
+// worktrees of the same repo share one journal. If the canonical root
+// already has a marker, the call is a no-op (returns false, nil) — the
+// worktree inherits the existing journal automatically via FindRoot.
 func Init(root string) (bool, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return false, err
+	}
+	if r, err := filepath.EvalSymlinks(absRoot); err == nil {
+		absRoot = r
+	}
+	if canonical, err := CanonicalRoot(absRoot); err == nil && canonical != "" && canonical != absRoot {
+		// We're inside a worktree (or subdir). Init at canonical root.
+		absRoot = canonical
 	}
 	markerPath := filepath.Join(absRoot, MarkerName)
 
