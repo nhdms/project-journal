@@ -121,6 +121,7 @@ func FindTask(tasks []model.Task, id string) (model.Task, bool) {
 }
 
 // AppendPhase appends a phase, erroring if a phase with the same ID exists.
+// On success, mirrors the phase into the derived index.
 func AppendPhase(l Layout, p model.Phase) error {
 	return withLock(l.Dir, func() error {
 		existing, err := LoadPhases(l)
@@ -130,11 +131,15 @@ func AppendPhase(l Layout, p model.Phase) error {
 		if _, ok := FindPhase(existing, p.ID); ok {
 			return fmt.Errorf("phase %q already exists", p.ID)
 		}
-		return AppendJSONL(l.PhasesJSONL, p)
+		if err := AppendJSONL(l.PhasesJSONL, p); err != nil {
+			return err
+		}
+		return mirrorPhase(l.Dir, p)
 	})
 }
 
 // AppendTask appends a task, erroring if a task with the same ID exists.
+// On success, mirrors the task into the derived index.
 func AppendTask(l Layout, t model.Task) error {
 	return withLock(l.Dir, func() error {
 		existing, err := LoadTasks(l)
@@ -144,12 +149,15 @@ func AppendTask(l Layout, t model.Task) error {
 		if _, ok := FindTask(existing, t.ID); ok {
 			return fmt.Errorf("task %q already exists", t.ID)
 		}
-		return AppendJSONL(l.TasksJSONL, t)
+		if err := AppendJSONL(l.TasksJSONL, t); err != nil {
+			return err
+		}
+		return mirrorTask(l.Dir, t)
 	})
 }
 
 // ReplaceTask replaces a task by ID. Errors if no task with that ID exists.
-// Rewrites tasks.jsonl atomically.
+// Rewrites tasks.jsonl atomically and mirrors into the derived index.
 func ReplaceTask(l Layout, t model.Task) error {
 	return withLock(l.Dir, func() error {
 		tasks, err := LoadTasks(l)
@@ -167,11 +175,15 @@ func ReplaceTask(l Layout, t model.Task) error {
 		if !found {
 			return fmt.Errorf("task %q not found", t.ID)
 		}
-		return writeTasks(l, tasks)
+		if err := writeTasks(l, tasks); err != nil {
+			return err
+		}
+		return mirrorTask(l.Dir, t)
 	})
 }
 
-// ReplacePhase replaces a phase by ID. Errors if not found.
+// ReplacePhase replaces a phase by ID. Errors if not found. Mirrors into
+// the derived index on success.
 func ReplacePhase(l Layout, p model.Phase) error {
 	return withLock(l.Dir, func() error {
 		phases, err := LoadPhases(l)
@@ -189,7 +201,10 @@ func ReplacePhase(l Layout, p model.Phase) error {
 		if !found {
 			return fmt.Errorf("phase %q not found", p.ID)
 		}
-		return writePhases(l, phases)
+		if err := writePhases(l, phases); err != nil {
+			return err
+		}
+		return mirrorPhase(l.Dir, p)
 	})
 }
 
@@ -234,14 +249,18 @@ func WriteCurrent(l Layout, id string) error {
 	return WriteFileAtomic(l.Current, []byte(id), 0o644)
 }
 
-// AppendTrajectory appends a trajectory event for taskID.
+// AppendTrajectory appends a trajectory event for taskID and mirrors it
+// into the derived index.
 func AppendTrajectory(l Layout, taskID string, ev model.TrajectoryEvent) error {
 	if err := os.MkdirAll(l.SessionsDir, 0o755); err != nil {
 		return err
 	}
 	path := filepath.Join(l.SessionsDir, taskID+".jsonl")
 	return withLock(l.Dir, func() error {
-		return AppendJSONL(path, ev)
+		if err := AppendJSONL(path, ev); err != nil {
+			return err
+		}
+		return mirrorTrajectory(l.Dir, taskID, ev)
 	})
 }
 

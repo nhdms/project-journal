@@ -14,17 +14,30 @@ import (
 )
 
 // NewReindexCmd creates `pj reindex`. Backfills embeddings for all
-// finished tasks (any non-todo, non-in_progress status).
+// finished tasks (any non-todo, non-in_progress status). With --index-only
+// it rebuilds just the derived DuckDB index from JSONL (fast, no LLM call).
 func NewReindexCmd() *cobra.Command {
 	var force bool
+	var indexOnly bool
 	cmd := &cobra.Command{
 		Use:   "reindex",
-		Short: "(Re)build embeddings for all finished tasks",
+		Short: "(Re)build embeddings for finished tasks; --index-only rebuilds derived index from JSONL",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			l, err := resolveLayout()
 			if err != nil {
 				return err
+			}
+			if indexOnly {
+				if !store.IndexEnabled() {
+					fmt.Fprintln(os.Stderr, "derived index disabled in this build (compile with -tags pj_duckdb to enable)")
+					return nil
+				}
+				if err := store.RebuildIndex(l); err != nil {
+					return fmt.Errorf("rebuild index: %w", err)
+				}
+				fmt.Println("Derived index rebuilt from JSONL.")
+				return nil
 			}
 			if !llm.HasAPIKey() {
 				return fmt.Errorf("OPENAI_API_KEY not set")
@@ -101,5 +114,6 @@ func NewReindexCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "Re-embed even if a cached embedding exists with matching text")
+	cmd.Flags().BoolVar(&indexOnly, "index-only", false, "Rebuild the derived index from JSONL without calling the embedding API")
 	return cmd
 }

@@ -78,7 +78,10 @@ func UpsertEmbedding(l Layout, rec EmbeddingRecord) error {
 				return err
 			}
 		}
-		return WriteFileAtomic(embeddingsPath(l), buf.Bytes(), 0o644)
+		if err := WriteFileAtomic(embeddingsPath(l), buf.Bytes(), 0o644); err != nil {
+			return err
+		}
+		return mirrorEmbedding(l.Dir, rec)
 	})
 }
 
