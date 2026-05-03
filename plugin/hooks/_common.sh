@@ -46,11 +46,23 @@ if [ -n "$HOOK_CWD" ] && [ -d "$HOOK_CWD" ]; then
   cd "$HOOK_CWD" || exit 0
 fi
 
-# Resolve current task. `pj current --quiet` exits non-zero with empty
-# stdout both when project-journal isn't initialized and when no task is
-# active. Hooks that require a task should call `pj_require_task` after
-# sourcing; session-start handles the empty case itself.
-PJ_TASK=$(pj current --quiet 2>/dev/null || true)
+# Resolve current task.
+# Exit codes from `pj current`:
+#   0 = task ID printed to stdout
+#   1 = no active task (not an error; journal may not be initialized)
+#   2 = real error (FS failure, corrupt layout, etc.)
+# Hooks that require a task call `pj_require_task` after sourcing.
+PJ_TASK=""
+pj current --quiet >"${PJ_HOOK_LOG}.curtmp" 2>/dev/null
+_pj_current_exit=$?
+if [ $_pj_current_exit -eq 0 ]; then
+  PJ_TASK=$(cat "${PJ_HOOK_LOG}.curtmp")
+elif [ $_pj_current_exit -eq 2 ]; then
+  log_err "common: pj current returned error (exit 2); skipping hook"
+  rm -f "${PJ_HOOK_LOG}.curtmp"
+  exit 0
+fi
+rm -f "${PJ_HOOK_LOG}.curtmp"
 
 pj_require_task() {
   if [ -z "$PJ_TASK" ]; then
