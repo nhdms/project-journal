@@ -1,6 +1,10 @@
 package store
 
 import (
+	"fmt"
+	"os"
+	"sync"
+
 	"github.com/nhdms/project-journal/internal/model"
 	"github.com/nhdms/project-journal/internal/store/index"
 )
@@ -88,12 +92,71 @@ func IndexEnabled() bool { return index.Enabled() }
 // SearchSimilar exposes index-backed cosine similarity search to callers
 // that prefer it over scanning JSONL embeddings. Returns nil if no real
 // index is compiled in or no embeddings exist.
+//
+// On the first call per process for a given data dir, SearchSimilar runs
+// EnsureIndexFresh — if the index has drifted from JSONL (e.g. mirror
+// writes were skipped due to v0.5 lock contention, or the index file was
+// just created on a v0.4.x journal), the index is rebuilt before serving
+// the query. Subsequent calls in the same process skip this check, since
+// in-process mirror writes keep both layers in lockstep.
 func SearchSimilar(l Layout, query []float32, topK int, allowedStatuses []string) ([]index.SimilarTask, error) {
+	EnsureIndexFresh(l)
 	idx, err := index.For(l.Dir)
 	if err != nil {
 		return nil, err
 	}
 	return idx.SearchSimilar(query, topK, allowedStatuses)
+}
+
+// driftCheckedDirs records data dirs that have already been drift-checked
+// in the current process so we don't pay the cost on every SearchSimilar
+// call. Mirror writes keep the index in sync within a process, so one
+// check per process per dir is sufficient.
+var driftCheckedDirs sync.Map // map[string]struct{}
+
+// EnsureIndexFresh runs IndexDrift once per process per data dir. On
+// detected drift, it rebuilds the index from JSONL and logs one line to
+// stderr. All errors are non-fatal: callers proceed with whatever the
+// index currently contains, falling back to JSONL paths where possible.
+//
+// Idempotent and cheap on the second-and-later call: the per-process
+// cache short-circuits to a single sync.Map load.
+func EnsureIndexFresh(l Layout) {
+	if !index.Enabled() {
+		return
+	}
+	if _, done := driftCheckedDirs.Load(l.Dir); done {
+		return
+	}
+	// Mark as checked BEFORE the (potentially slow) check so concurrent
+	// callers within the same process don't run the check twice.
+	driftCheckedDirs.Store(l.Dir, struct{}{})
+
+	r, err := IndexDrift(l)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "pj: index drift check failed: %v\n", err)
+		return
+	}
+	if !r.Drift {
+		return
+	}
+	fmt.Fprintf(os.Stderr,
+		"pj: derived index out of sync (tasks: JSONL=%d index=%d, embeddings: JSONL=%d index=%d) — rebuilding…\n",
+		r.TasksJSONL, r.TasksIndex, r.EmbeddingsJSONL, r.EmbeddingsIndex,
+	)
+	if err := RebuildIndex(l); err != nil {
+		fmt.Fprintf(os.Stderr, "pj: index rebuild failed: %v (run `pj reindex --index-only` to retry)\n", err)
+	}
+}
+
+// resetDriftCheckCacheForTest clears the per-process drift-check cache.
+// Test-only — callers in production should never invalidate the cache,
+// since mirror writes maintain lock-step within a process.
+func resetDriftCheckCacheForTest() {
+	driftCheckedDirs.Range(func(k, _ any) bool {
+		driftCheckedDirs.Delete(k)
+		return true
+	})
 }
 
 // IndexDrift reports the row-count delta between the JSONL source of

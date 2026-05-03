@@ -310,6 +310,52 @@ func TestIndexDrift_DetectsJSONLAhead(t *testing.T) {
 	}
 }
 
+// TestEnsureIndexFresh_RebuildsOnDrift: when JSONL is ahead of the index
+// (mirror skipped due to lock contention, fresh install on a v0.4.x
+// journal), EnsureIndexFresh detects the drift on first SearchSimilar
+// call and rebuilds.
+func TestEnsureIndexFresh_RebuildsOnDrift(t *testing.T) {
+	l := newTestLayout(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	// Seed JSONL directly: AppendJSONL bypasses the mirror, so the index
+	// stays empty while JSONL has the row.
+	if err := store.AppendJSONL(l.TasksJSONL, model.Task{
+		ID: "T1", Title: "drift", Status: model.StatusCompleted, EndedAt: &now,
+	}); err != nil {
+		t.Fatalf("seed task: %v", err)
+	}
+	embPath := filepath.Join(l.Dir, store.EmbeddingsFile)
+	if err := store.AppendJSONL(embPath, store.EmbeddingRecord{
+		TaskID: "T1", Text: "drift", Embedding: []float32{1, 0}, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed embedding: %v", err)
+	}
+
+	// Confirm precondition: index is empty.
+	idx := idxFor(t, l)
+	if n, _ := idx.TableCount("tasks"); n != 0 {
+		t.Fatalf("precondition: tasks=%d, want 0", n)
+	}
+
+	// Trigger via SearchSimilar — first call per process should detect drift,
+	// rebuild, then return the rebuilt result.
+	res, err := store.SearchSimilar(l, []float32{1, 0}, 5, nil)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(res) != 1 || res[0].TaskID != "T1" {
+		t.Errorf("expected [T1] after auto-rebuild, got %+v", res)
+	}
+	// Index should now match JSONL.
+	if n, _ := idx.TableCount("tasks"); n != 1 {
+		t.Errorf("post-rebuild tasks=%d, want 1", n)
+	}
+	if n, _ := idx.TableCount("embeddings"); n != 1 {
+		t.Errorf("post-rebuild embeddings=%d, want 1", n)
+	}
+}
+
 // TestIndexDrift_RebuildHeals: after RebuildIndex, drift returns to false.
 func TestIndexDrift_RebuildHeals(t *testing.T) {
 	l := newTestLayout(t)
